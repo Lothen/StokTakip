@@ -9,7 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Sayfa ilk açıldığında oturum var mı kontrol et
+    // 1. Sayfa ilk açıldığında oturum var mı kontrol et v2
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
