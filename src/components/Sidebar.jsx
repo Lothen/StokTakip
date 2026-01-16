@@ -1,17 +1,22 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext'; // 1. AuthContext'i içeri aldık
+// 1. Network ikonunu import listesine ekledik
+import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2, Warehouse, FolderKanban, Network } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const Sidebar = () => {
   const location = useLocation();
-  const { signOut } = useAuth(); // 2. Çıkış fonksiyonunu çağırdık
+  const { signOut } = useAuth();
 
   const menuItems = [
     { path: '/', name: 'Genel Durum', icon: <LayoutDashboard size={20} /> },
     { path: '/musteriler', name: 'Cari Listesi', icon: <Building2 size={20} /> },
+    { path: '/projeler', name: 'Projeler', icon: <FolderKanban size={20} /> },
+    // 2. Yeni Proje Ağacı sekmesini buraya ekledik
+    { path: '/proje-agaci', name: 'Proje Ağacı', icon: <Network size={20} /> },
     { path: '/stoklar', name: 'Stok Listesi', icon: <Package size={20} /> },
-    { path: '/hareketler', name: 'Stok Hareketleri', icon: <ArrowRightLeft size={20} /> },
+    { path: '/depolar', name: 'Depolar', icon: <Warehouse size={20} /> },
+    //{ path: '/hareketler', name: 'Stok Hareketleri', icon: <ArrowRightLeft size={20} /> },
     { path: '/ayarlar', name: 'Ayarlar', icon: <Settings size={20} /> },
   ];
 
@@ -41,7 +46,7 @@ const Sidebar = () => {
 
       <div className="p-4 border-t border-slate-700">
         <button 
-          onClick={signOut} // 3. Tıklanınca çıkış yapmasını sağladık
+          onClick={signOut}
           className="flex items-center space-x-3 text-red-400 hover:text-red-300 w-full p-2 transition-colors"
         >
           <LogOut size={20} />
