@@ -1,46 +1,121 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-// 1. Network ikonunu import listesine ekledik
-import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2, Warehouse, FolderKanban, Network } from 'lucide-react';
+// Yeni ikonlar eklendi: BarChart3 (Raporlar için), Filter (Detaylı analiz için)
+import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2, Warehouse, FolderKanban, Network, Factory, ChevronDown, ChevronRight, PlusCircle, List, BarChart3, Filter } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Sidebar = () => {
   const location = useLocation();
   const { signOut } = useAuth();
+  
+  // Hangi menünün açık olduğunu tutan state
+  const [openMenu, setOpenMenu] = useState('');
+
+  const toggleMenu = (menuName) => {
+    if (openMenu === menuName) {
+      setOpenMenu('');
+    } else {
+      setOpenMenu(menuName);
+    }
+  };
 
   const menuItems = [
     { path: '/', name: 'Genel Durum', icon: <LayoutDashboard size={20} /> },
+    { path: '/uretim', name: 'Üretim Fişleri', icon: <Factory size={20} /> },
+    
+    // --- STOK HAREKETLERİ (MEVCUT) ---
+    { 
+      name: 'Stok Hareketleri', 
+      icon: <ArrowRightLeft size={20} />,
+      isSubMenu: true,
+      id: 'transactions',
+      children: [
+        { path: '/hareketler/ekle', name: 'Hareket Ekle', icon: <PlusCircle size={16} /> },
+        { path: '/hareketler/liste', name: 'Hareket Listesi', icon: <List size={16} /> }
+      ]
+    },
+
+    // --- YENİ EKLENEN: STOK DURUMU (RAPORLAR) ---
+    { 
+      name: 'Stok Durumu', 
+      icon: <BarChart3 size={20} />,
+      isSubMenu: true,
+      id: 'reports',
+      children: [
+        { path: '/stok-durumu/ozet', name: 'Genel Özet', icon: <List size={16} /> },
+        { path: '/stok-durumu/detay', name: 'Detaylı Analiz', icon: <Filter size={16} /> }
+      ]
+    },
+    // ---------------------------------------------
+
     { path: '/musteriler', name: 'Cari Listesi', icon: <Building2 size={20} /> },
     { path: '/projeler', name: 'Projeler', icon: <FolderKanban size={20} /> },
-    // 2. Yeni Proje Ağacı sekmesini buraya ekledik
     { path: '/proje-agaci', name: 'Proje Ağacı', icon: <Network size={20} /> },
     { path: '/stoklar', name: 'Stok Listesi', icon: <Package size={20} /> },
     { path: '/depolar', name: 'Depolar', icon: <Warehouse size={20} /> },
-    //{ path: '/hareketler', name: 'Stok Hareketleri', icon: <ArrowRightLeft size={20} /> },
     { path: '/ayarlar', name: 'Ayarlar', icon: <Settings size={20} /> },
   ];
 
   return (
-    <div className="h-screen w-64 bg-slate-900 text-white flex flex-col fixed left-0 top-0">
+    <div className="h-screen w-64 bg-slate-900 text-white flex flex-col fixed left-0 top-0 overflow-y-auto z-50">
       <div className="p-6 border-b border-slate-700">
         <h1 className="text-2xl font-bold text-blue-400">Gem Stok</h1>
         <p className="text-xs text-slate-400 mt-1">Depo Yönetim Sistemi</p>
       </div>
 
       <nav className="flex-1 p-4 space-y-2">
-        {menuItems.map((item) => (
-          <Link
-            key={item.path}
-            to={item.path}
-            className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${
-              location.pathname === item.path
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            {item.icon}
-            <span>{item.name}</span>
-          </Link>
+        {menuItems.map((item, index) => (
+          <div key={index}>
+            {item.isSubMenu ? (
+              // ALT MENÜLÜ ÖĞE YAPISI
+              <div>
+                <button
+                  onClick={() => toggleMenu(item.id)}
+                  className={`flex items-center justify-between w-full space-x-3 p-3 rounded-lg transition-colors 
+                  ${location.pathname.includes(item.id === 'transactions' ? '/hareketler' : '/stok-durumu') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+                >
+                  <div className="flex items-center space-x-3">
+                    {item.icon}
+                    <span>{item.name}</span>
+                  </div>
+                  {openMenu === item.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                </button>
+                
+                {/* Alt Linkler */}
+                {(openMenu === item.id || 
+                  (item.id === 'transactions' && location.pathname.includes('/hareketler')) ||
+                  (item.id === 'reports' && location.pathname.includes('/stok-durumu'))
+                 ) && (
+                  <div className="ml-6 mt-1 space-y-1 border-l-2 border-slate-700 pl-2">
+                    {item.children.map((subItem) => (
+                      <Link
+                        key={subItem.path}
+                        to={subItem.path}
+                        className={`flex items-center space-x-2 p-2 rounded-lg text-sm transition-colors
+                        ${location.pathname === subItem.path ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        {subItem.icon}
+                        <span>{subItem.name}</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              // NORMAL ÖĞE YAPISI
+              <Link
+                to={item.path}
+                className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${
+                  location.pathname === item.path
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                {item.icon}
+                <span>{item.name}</span>
+              </Link>
+            )}
+          </div>
         ))}
       </nav>
 

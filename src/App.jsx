@@ -8,18 +8,20 @@ import Companies from './pages/Companies';
 import Stocks from './pages/Stocks';
 import Warehouses from './pages/Warehouses';
 import Projects from './pages/Projects'; 
-import ProjectTree from './pages/ProjectTree'; // <--- 1. YENİ EKLENEN (Ağaç Görünümü)
-//import StockTransactions from './pages/StockTransactions'; // <--- 2. EKSİK OLAN (Hareketler)
+import ProjectTree from './pages/ProjectTree';
+import Production from './pages/Production'; 
+import StockTransactions from './pages/StockTransactions'; 
+import StockTransactionList from './pages/StockTransactionList.jsx'; 
+import StockStatusSummary from './pages/StockStatusSummary'; 
+// --- YENİ EKLENEN IMPORT ---
+import StockStatusDetail from './pages/StockStatusDetail'; 
+// ---------------------------
 import Login from './pages/Login';
 
 // Korumalı Rota Bileşeni
 const ProtectedRoute = ({ children }) => {
   const { user } = useAuth();
-  // Eğer kullanıcı yoksa Login'e gönder
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-  // Kullanıcı varsa sayfayı göster (Layout içinde)
+  if (!user) return <Navigate to="/login" replace />;
   return <Layout>{children}</Layout>;
 };
 
@@ -38,20 +40,62 @@ function App() {
             </ProtectedRoute>
           } />
           
+          {/* ÜRETİM MODÜLÜ */}
+          <Route path="/uretim" element={
+            <ProtectedRoute>
+              <Production />
+            </ProtectedRoute>
+          } />
+
+          {/* --- STOK HAREKETLERİ MODÜLÜ --- */}
+          <Route path="/hareketler/ekle" element={
+            <ProtectedRoute>
+              <StockTransactions />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/hareketler/liste" element={
+            <ProtectedRoute>
+              <StockTransactionList />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/hareketler/duzenle/:docNo" element={
+            <ProtectedRoute>
+              <StockTransactions />
+            </ProtectedRoute>
+          } />
+
+          {/* --- STOK RAPORLARI / DURUMU --- */}
+          
+          {/* 1. Genel Özet */}
+          <Route path="/stok-durumu/ozet" element={
+            <ProtectedRoute>
+              <StockStatusSummary />
+            </ProtectedRoute>
+          } />
+
+          {/* 2. Detaylı Analiz (YENİ EKLENEN ROTA) */}
+          <Route path="/stok-durumu/detay" element={
+            <ProtectedRoute>
+              <StockStatusDetail />
+            </ProtectedRoute>
+          } />
+          {/* ------------------------------------- */}
+
+
           <Route path="/musteriler" element={
             <ProtectedRoute>
               <Companies />
             </ProtectedRoute>
           } />
 
-          {/* Projeler Listesi */}
           <Route path="/projeler" element={
             <ProtectedRoute>
               <Projects />
             </ProtectedRoute>
           } />
 
-          {/* YENİ ROTA: Proje Ağacı (Hiyerarşi) */}
           <Route path="/proje-agaci" element={
             <ProtectedRoute>
               <ProjectTree />
@@ -67,13 +111,6 @@ function App() {
           <Route path="/depolar" element={
             <ProtectedRoute>
               <Warehouses />
-            </ProtectedRoute>
-          } />
-
-          {/* Stok Hareketleri */}
-          <Route path="/hareketler" element={
-            <ProtectedRoute>
-              {/*  <StockTransactions /> */}
             </ProtectedRoute>
           } />
 
