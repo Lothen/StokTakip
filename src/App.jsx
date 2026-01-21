@@ -13,8 +13,10 @@ import Production from './pages/Production';
 import StockTransactions from './pages/StockTransactions'; 
 import StockTransactionList from './pages/StockTransactionList.jsx'; 
 import StockStatusSummary from './pages/StockStatusSummary'; 
-// --- YENİ EKLENEN IMPORT ---
 import StockStatusDetail from './pages/StockStatusDetail'; 
+// --- SATINALMA IMPORTLARI ---
+import PurchaseInvoice from './pages/PurchaseInvoice';
+import PurchaseInvoiceList from './pages/PurchaseInvoiceList'; // <--- YENİ EKLENDİ
 // ---------------------------
 import Login from './pages/Login';
 
@@ -47,6 +49,20 @@ function App() {
             </ProtectedRoute>
           } />
 
+          {/* --- SATINALMA (MAL KABUL) MODÜLÜ --- */}
+          <Route path="/satinalma/yeni" element={
+            <ProtectedRoute>
+              <PurchaseInvoice />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/satinalma/gecmis" element={ // <--- YENİ EKLENEN ROTA
+            <ProtectedRoute>
+              <PurchaseInvoiceList />
+            </ProtectedRoute>
+          } />
+          {/* ------------------------------------ */}
+
           {/* --- STOK HAREKETLERİ MODÜLÜ --- */}
           <Route path="/hareketler/ekle" element={
             <ProtectedRoute>
@@ -68,21 +84,19 @@ function App() {
 
           {/* --- STOK RAPORLARI / DURUMU --- */}
           
-          {/* 1. Genel Özet */}
+          {/* 1. Genel Özet (Stok Ekstresi) */}
           <Route path="/stok-durumu/ozet" element={
             <ProtectedRoute>
               <StockStatusSummary />
             </ProtectedRoute>
           } />
 
-          {/* 2. Detaylı Analiz (YENİ EKLENEN ROTA) */}
+          {/* 2. Detaylı Analiz */}
           <Route path="/stok-durumu/detay" element={
             <ProtectedRoute>
               <StockStatusDetail />
             </ProtectedRoute>
           } />
-          {/* ------------------------------------- */}
-
 
           <Route path="/musteriler" element={
             <ProtectedRoute>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-// Yeni ikonlar eklendi: BarChart3 (Raporlar için), Filter (Detaylı analiz için)
-import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2, Warehouse, FolderKanban, Network, Factory, ChevronDown, ChevronRight, PlusCircle, List, BarChart3, Filter } from 'lucide-react';
+// YENİ EKLENEN İKON: ShoppingCart (Satınalma için)
+import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2, Warehouse, FolderKanban, Network, Factory, ChevronDown, ChevronRight, PlusCircle, List, BarChart3, Filter, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Sidebar = () => {
@@ -21,9 +21,24 @@ const Sidebar = () => {
 
   const menuItems = [
     { path: '/', name: 'Genel Durum', icon: <LayoutDashboard size={20} /> },
+    
+    // --- YENİ EKLENEN: SATINALMA MODÜLÜ ---
+    { 
+      name: 'Satınalma', 
+      icon: <ShoppingCart size={20} />, // Sepet İkonu
+      isSubMenu: true,
+      id: 'purchasing', // Kimlik
+      children: [
+        { path: '/satinalma/yeni', name: 'Yeni Fatura Girişi', icon: <PlusCircle size={16} /> },
+        // Henüz yapmadık ama yeri hazır olsun:
+        { path: '/satinalma/gecmis', name: 'Fatura Listesi', icon: <List size={16} /> } 
+      ]
+    },
+    // --------------------------------------
+
     { path: '/uretim', name: 'Üretim Fişleri', icon: <Factory size={20} /> },
     
-    // --- STOK HAREKETLERİ (MEVCUT) ---
+    // --- STOK HAREKETLERİ ---
     { 
       name: 'Stok Hareketleri', 
       icon: <ArrowRightLeft size={20} />,
@@ -35,7 +50,7 @@ const Sidebar = () => {
       ]
     },
 
-    // --- YENİ EKLENEN: STOK DURUMU (RAPORLAR) ---
+    // --- STOK DURUMU (RAPORLAR) ---
     { 
       name: 'Stok Durumu', 
       icon: <BarChart3 size={20} />,
@@ -46,7 +61,6 @@ const Sidebar = () => {
         { path: '/stok-durumu/detay', name: 'Detaylı Analiz', icon: <Filter size={16} /> }
       ]
     },
-    // ---------------------------------------------
 
     { path: '/musteriler', name: 'Cari Listesi', icon: <Building2 size={20} /> },
     { path: '/projeler', name: 'Projeler', icon: <FolderKanban size={20} /> },
@@ -55,6 +69,14 @@ const Sidebar = () => {
     { path: '/depolar', name: 'Depolar', icon: <Warehouse size={20} /> },
     { path: '/ayarlar', name: 'Ayarlar', icon: <Settings size={20} /> },
   ];
+
+  // Aktif menü kontrolü için yardımcı fonksiyon
+  const isMenuActive = (item) => {
+    if (item.id === 'transactions') return location.pathname.includes('/hareketler');
+    if (item.id === 'reports') return location.pathname.includes('/stok-durumu');
+    if (item.id === 'purchasing') return location.pathname.includes('/satinalma'); // Satınalma kontrolü
+    return false;
+  };
 
   return (
     <div className="h-screen w-64 bg-slate-900 text-white flex flex-col fixed left-0 top-0 overflow-y-auto z-50">
@@ -72,7 +94,7 @@ const Sidebar = () => {
                 <button
                   onClick={() => toggleMenu(item.id)}
                   className={`flex items-center justify-between w-full space-x-3 p-3 rounded-lg transition-colors 
-                  ${location.pathname.includes(item.id === 'transactions' ? '/hareketler' : '/stok-durumu') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+                  ${isMenuActive(item) ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
                 >
                   <div className="flex items-center space-x-3">
                     {item.icon}
@@ -82,10 +104,7 @@ const Sidebar = () => {
                 </button>
                 
                 {/* Alt Linkler */}
-                {(openMenu === item.id || 
-                  (item.id === 'transactions' && location.pathname.includes('/hareketler')) ||
-                  (item.id === 'reports' && location.pathname.includes('/stok-durumu'))
-                 ) && (
+                {(openMenu === item.id || isMenuActive(item)) && (
                   <div className="ml-6 mt-1 space-y-1 border-l-2 border-slate-700 pl-2">
                     {item.children.map((subItem) => (
                       <Link
