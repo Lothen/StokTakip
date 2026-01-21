@@ -11,7 +11,7 @@ const Companies = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false); ////
   const [formData, setFormData] = useState({ 
     id: null, 
     name: '', 
