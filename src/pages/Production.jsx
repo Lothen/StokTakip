@@ -1,421 +1,325 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import { useAuth } from '../context/AuthContext';
-import { Factory, Save, Package, ArrowRight, ArrowLeft, RotateCcw, Plus, Trash2, List, FileText, MapPin, Calendar, Search, ChevronDown } from 'lucide-react';
-
-// --- ÖZEL ARANABİLİR SELECT BİLEŞENİ (GÜNCELLENDİ: Şeffaflık Giderildi) ---
-const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon, formatLabel }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const wrapperRef = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [wrapperRef]);
-
-  const selectedItem = options.find(opt => opt.id === value);
-
-  const filteredOptions = options.filter(opt => {
-    const label = formatLabel(opt).toLowerCase();
-    return label.includes(searchTerm.toLowerCase());
-  });
-
-  return (
-    <div className="relative w-full" ref={wrapperRef}>
-      {/* Seçim Kutusu */}
-      <div 
-        onClick={() => setIsOpen(!isOpen)} 
-        className={`w-full p-3 border-2 rounded-lg cursor-pointer flex items-center justify-between bg-white transition-all h-12 relative z-10
-        ${isOpen ? 'border-blue-600 ring-1 ring-blue-600' : 'border-gray-300 hover:border-gray-400'}`}
-      >
-        <div className="flex items-center gap-2 overflow-hidden">
-           {Icon && <Icon size={18} className="text-gray-500 flex-shrink-0" />}
-           <span className={`truncate ${selectedItem ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
-             {selectedItem ? formatLabel(selectedItem) : placeholder}
-           </span>
-        </div>
-        <ChevronDown size={18} className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </div>
-
-      {/* Açılır Liste (DÜZELTME: bg-white ve yüksek z-index eklendi) */}
-      {isOpen && (
-        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-2xl z-[9999] overflow-hidden">
-          
-          {/* Arama Inputu */}
-          <div className="p-2 border-b bg-gray-50 sticky top-0 z-20">
-             <div className="relative">
-                <Search size={16} className="absolute left-3 top-2.5 text-gray-500" />
-                <input 
-                  autoFocus
-                  type="text" 
-                  placeholder="Ara..." 
-                  className="w-full pl-9 p-2 text-sm border border-gray-300 rounded bg-white text-gray-900 focus:outline-none focus:border-blue-500 placeholder-gray-400"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-             </div>
-          </div>
-
-          {/* Liste Öğeleri */}
-          <div className="max-h-60 overflow-y-auto bg-white">
-             {filteredOptions.length === 0 ? (
-               <div className="p-4 text-center text-gray-500 text-sm bg-white">Sonuç bulunamadı.</div>
-             ) : (
-               filteredOptions.map(opt => (
-                 <div 
-                   key={opt.id}
-                   onClick={() => {
-                     onChange(opt.id);
-                     setIsOpen(false);
-                     setSearchTerm('');
-                   }}
-                   className={`p-3 text-sm cursor-pointer border-b last:border-0 border-gray-100 transition-colors
-                   ${value === opt.id ? 'bg-blue-100 text-blue-800 font-bold' : 'text-gray-800 hover:bg-gray-100 bg-white'}`}
-                 >
-                   {formatLabel(opt)}
-                 </div>
-               ))
-             )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-// --------------------------------------------------------
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabase'; 
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { Button, Card, Table, Form, Select, InputNumber, Input, message, Divider, Space, Tooltip, Spin } from 'antd';
+import { PlusOutlined, SaveOutlined, DeleteOutlined, RobotOutlined, FileTextOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 
 const Production = () => {
-  const { user } = useAuth();
-  const [tenantId, setTenantId] = useState(null);
-  
-  const [projects, setProjects] = useState([]);
-  const [stocks, setStocks] = useState([]);
-  const [warehouses, setWarehouses] = useState([]);
-  
-  const [activeTab, setActiveTab] = useState('out');
-  const [loading, setLoading] = useState(false);
+    const [searchParams] = useSearchParams(); // URL parametrelerini oku
+    const navigate = useNavigate();
+    const editDocNo = searchParams.get('docNo'); // Düzenlenecek Fiş No
 
-  const [headData, setHeadData] = useState({
-    project_id: '',
-    warehouse_id: '',
-    document_no: '',
-    description: '',
-    document_date: new Date().toISOString().split('T')[0]
-  });
+    const [stocks, setStocks] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [pageLoading, setPageLoading] = useState(false); // Sayfa verisi yükleniyor mu?
+    
+    // Form Durumları
+    const [targetProduct, setTargetProduct] = useState(null);
+    const [targetQuantity, setTargetQuantity] = useState(1);
+    const [ingredients, setIngredients] = useState([]);
+    const [description, setDescription] = useState('');
+    const [documentNo, setDocumentNo] = useState(''); 
+    const [warehouses, setWarehouses] = useState([]);
+    const [selectedWarehouse, setSelectedWarehouse] = useState(null);
+    const [isEditMode, setIsEditMode] = useState(false); // Düzenleme modu mu?
 
-  const [lineItems, setLineItems] = useState([]);
-
-  const [newLine, setNewLine] = useState({
-    stock_id: '',
-    quantity: ''
-  });
-
-  useEffect(() => {
-    if (user) loadInitialData();
-  }, [user]);
-
-  useEffect(() => {
-    generateDocNo();
-  }, [activeTab]);
-
-  const generateDocNo = () => {
-    const prefix = activeTab === 'out' ? 'OUT' : activeTab === 'in' ? 'IN' : 'RET';
-    const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'');
-    const random = Math.floor(1000 + Math.random() * 9000);
-    setHeadData(prev => ({ ...prev, document_no: `${prefix}-${dateStr}-${random}` }));
-  };
-
-  const loadInitialData = async () => {
-    const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
-    if (profile) {
-      setTenantId(profile.tenant_id);
-
-      const { data: projData } = await supabase.from('projects')
-        .select('id, name, code')
-        .eq('tenant_id', profile.tenant_id)
-        .eq('status', 'Devam Ediyor');
-      
-      const { data: stockData } = await supabase.from('stocks').select('id, name, stock_code').eq('tenant_id', profile.tenant_id);
-      
-      const { data: whData } = await supabase.from('warehouses').select('id, name').eq('tenant_id', profile.tenant_id);
-
-      setProjects(projData || []);
-      setStocks(stockData || []);
-      setWarehouses(whData || []);
-    }
-  };
-
-  const handleAddLine = (e) => {
-    e.preventDefault();
-    if (!newLine.stock_id) return alert("Lütfen bir malzeme seçin!");
-    if (!newLine.quantity || Number(newLine.quantity) <= 0) return alert("Geçerli bir miktar girin!");
-
-    const selectedStock = stocks.find(s => s.id === newLine.stock_id);
-
-    const newItem = {
-      ...newLine,
-      stock_name: selectedStock.name,
-      stock_code: selectedStock.stock_code,
-      id: Date.now()
+    // Otomatik Fiş No Üretici
+    const generateDocumentNo = () => {
+        const d = new Date();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const random = Math.floor(1000 + Math.random() * 9000);
+        return `URT-${year}${month}${day}-${random}`;
     };
 
-    setLineItems([...lineItems, newItem]);
-    setNewLine({ stock_id: '', quantity: '' });
-  };
+    // 1. Verileri ve (Varsa) Düzenlenecek Kaydı Yükle
+    useEffect(() => {
+        const init = async () => {
+            setPageLoading(true);
+            await fetchInitialData();
+            
+            // Eğer URL'de docNo varsa, o fişin detaylarını çek ve forma doldur
+            if (editDocNo) {
+                setIsEditMode(true);
+                await fetchTransactionDetails(editDocNo);
+            } else {
+                setDocumentNo(generateDocumentNo()); // Yeni kayıt ise otomatik no ver
+            }
+            setPageLoading(false);
+        };
+        init();
+    }, [editDocNo]);
 
-  const handleRemoveLine = (id) => {
-    setLineItems(lineItems.filter(item => item.id !== id));
-  };
+    const fetchInitialData = async () => {
+        const { data: stockData } = await supabase.from('stocks').select('id, name, stock_code, unit_id');
+        const { data: warehouseData } = await supabase.from('warehouses').select('id, name');
+        
+        if (stockData) setStocks(stockData);
+        if (warehouseData) {
+            setWarehouses(warehouseData);
+            // Sadece yeni kayıtta varsayılan seç, edit modunda veritabanından geleni bekleyeceğiz
+            if (!editDocNo && warehouseData.length > 0) setSelectedWarehouse(warehouseData[0].id);
+        }
+    };
 
-  const handleSaveAll = async () => {
-    if (!headData.project_id) return alert("Lütfen Proje seçin!");
-    if (!headData.warehouse_id) return alert("Lütfen Depo seçin!");
-    if (!headData.document_no) return alert("Fiş numarası boş olamaz!");
-    if (lineItems.length === 0) return alert("Listeye hiç ürün eklemediniz!");
+    // DÜZENLEME İÇİN VERİ ÇEKME FONKSİYONU
+    const fetchTransactionDetails = async (docNo) => {
+        // Bu fiş numarasına ait tüm hareketleri çek
+        const { data, error } = await supabase
+            .from('stock_transactions')
+            .select('*')
+            .eq('document_no', docNo);
 
-    setLoading(true);
+        if (error || !data || data.length === 0) {
+            message.error('Kayıt bulunamadı!');
+            return;
+        }
 
-    let transactionType = '';
-    let direction = 0;
+        // --- VERİYİ AYRIŞTIRMA (GİRDİLER vs ÇIKTILAR) ---
+        
+        // 1. Üretilen Ürün (target): direction = 1 (Giriş) ve type = 'production'
+        const productionItem = data.find(item => item.direction === 1 && item.transaction_type === 'production');
+        
+        // 2. Hammaddeler (ingredients): direction = -1 (Çıkış) ve type = 'usage'
+        const usageItems = data.filter(item => item.direction === -1 && item.transaction_type === 'usage');
 
-    if (activeTab === 'out') {
-      transactionType = 'production_out'; 
-      direction = -1; 
-    } else if (activeTab === 'in') {
-      transactionType = 'production_in'; 
-      direction = 1; 
-    } else if (activeTab === 'return') {
-      transactionType = 'production_return'; 
-      direction = 1; 
+        if (productionItem) {
+            setDocumentNo(productionItem.document_no);
+            setDescription(productionItem.description);
+            setSelectedWarehouse(productionItem.warehouse_id);
+            setTargetProduct(productionItem.stock_id);
+            setTargetQuantity(productionItem.quantity);
+        }
+
+        if (usageItems.length > 0) {
+            const parsedIngredients = usageItems.map(item => ({
+                stock_id: item.stock_id,
+                quantity: item.quantity
+            }));
+            setIngredients(parsedIngredients);
+        }
+    };
+
+    const addIngredientRow = () => {
+        setIngredients([...ingredients, { stock_id: null, quantity: 1 }]);
+    };
+
+    const updateIngredient = (index, field, value) => {
+        const list = [...ingredients];
+        list[index][field] = value;
+        setIngredients(list);
+    };
+
+    const removeIngredient = (index) => {
+        const list = [...ingredients];
+        list.splice(index, 1);
+        setIngredients(list);
+    };
+
+    const handleProduction = async () => {
+        if (!documentNo) { message.error("Lütfen Belge No giriniz."); return; }
+        if (!targetProduct || !selectedWarehouse) { message.error("Lütfen ürün ve depo seçin."); return; }
+        if (ingredients.length === 0 || ingredients.some(i => !i.stock_id)) { message.error("Malzemeleri eksiksiz girin."); return; }
+
+        setLoading(true);
+        try {
+            // --- GÜNCELLEME MANTIĞI ---
+            // Eğer Düzenleme Modundaysak: Önce eski kayıtları sil, sonra yenisini ekle.
+            // Bu yöntem en temizidir çünkü kullanıcı malzeme sayısını değiştirmiş olabilir.
+            if (isEditMode) {
+                const { error: deleteError } = await supabase
+                    .from('stock_transactions')
+                    .delete()
+                    .eq('document_no', documentNo); // Mevcut belge no ile sil
+                
+                if (deleteError) throw deleteError;
+            }
+
+            // Yeni Kayıt (veya Güncellenmiş Kayıt) Oluştur
+            const { error } = await supabase.rpc('execute_production', {
+                p_target_stock_id: targetProduct,
+                p_production_quantity: targetQuantity,
+                p_ingredients: ingredients,
+                p_warehouse_id: selectedWarehouse,
+                p_description: description || 'Yarı Mamul Üretimi',
+                p_document_no: documentNo
+            });
+
+            if (error) throw error;
+
+            message.success(isEditMode ? "Üretim güncellendi!" : "Üretim başarıyla kaydedildi!");
+            
+            // İşlem bitince listeye dön veya formu temizle
+            if (isEditMode) {
+                navigate('/hareketler'); // Listeye geri dön
+            } else {
+                setIngredients([]);
+                setDescription('');
+                setTargetQuantity(1);
+                setTargetProduct(null);
+                setDocumentNo(generateDocumentNo());
+            }
+
+        } catch (error) {
+            console.error('Hata:', error);
+            message.error("İşlem hatası: " + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (pageLoading) {
+        return <div className="p-10 text-center"><Spin size="large" tip="Veriler Yükleniyor..." /></div>;
     }
 
-    const records = lineItems.map(item => ({
-      tenant_id: tenantId,
-      created_by: user.id,
-      project_id: headData.project_id,
-      warehouse_id: headData.warehouse_id,
-      document_no: headData.document_no,
-      document_date: headData.document_date, 
-      description: headData.description,
-      stock_id: item.stock_id,
-      quantity: item.quantity,
-      transaction_type: transactionType,
-      direction: direction,
-      company_id: null,
-      related_warehouse_id: null,
-    }));
-
-    const { error } = await supabase.from('stock_transactions').insert(records);
-
-    if (error) {
-      alert("Hata oluştu: " + error.message);
-    } else {
-      alert(`Fiş No: ${headData.document_no}\n${lineItems.length} kalem ürün başarıyla kaydedildi!`);
-      setLineItems([]);
-      setNewLine({ stock_id: '', quantity: '' });
-      generateDocNo();
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="p-6 max-w-6xl mx-auto">
-      
-      {/* --- ÜST BAŞLIK VE KAYDET BUTONU --- */}
-      <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-md border border-gray-200 sticky top-0 z-[1000]">
-        
-        <div>
-           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-             <Factory size={28} className="text-blue-600" /> Üretim Fişleri
-           </h1>
-        </div>
-
-        <div className="flex items-center gap-6 ml-auto">
-            <div className="text-right">
-                <span className="block text-xs text-gray-500 font-bold uppercase">Liste Durumu</span>
-                <span className="text-blue-600 font-bold text-lg">Toplam {lineItems.length} Kalem</span>
+    return (
+        <div style={{ padding: '20px' }}>
+            <div className="flex items-center gap-4 mb-4">
+                {isEditMode && (
+                    <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/hareketler')}>
+                        Geri Dön
+                    </Button>
+                )}
+                <h2 className="m-0 flex items-center gap-2">
+                    <RobotOutlined /> 
+                    {isEditMode ? 'Üretim Fişini Düzenle' : 'Üretim & Birleştirme'}
+                </h2>
             </div>
-
-            <button 
-              onClick={handleSaveAll}
-              disabled={loading || lineItems.length === 0}
-              className={`h-12 px-8 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-2 font-bold shadow-md transition-colors min-w-[200px] ${
-                loading || lineItems.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              <Save size={24} />
-              <span>KAYDET VE TAMAMLA</span>  
-            </button>
-        </div>
-      </div>
-
-      {/* --- SEKMELER --- */}
-      <div className="grid grid-cols-3 gap-4 mb-6 relative z-10">
-        <button onClick={() => { setActiveTab('out'); setLineItems([]); }}
-          className={`p-4 rounded-xl border-2 font-bold flex flex-col items-center justify-center transition-all 
-          ${activeTab === 'out' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'}`}>
-          <ArrowRight size={24} className="mb-1" /> HAMMADDE ÇIKIŞI
-        </button>
-        <button onClick={() => { setActiveTab('in'); setLineItems([]); }}
-          className={`p-4 rounded-xl border-2 font-bold flex flex-col items-center justify-center transition-all 
-          ${activeTab === 'in' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'}`}>
-          <ArrowLeft size={24} className="mb-1" /> MAMUL GİRİŞİ
-        </button>
-        <button onClick={() => { setActiveTab('return'); setLineItems([]); }}
-          className={`p-4 rounded-xl border-2 font-bold flex flex-col items-center justify-center transition-all 
-          ${activeTab === 'return' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'}`}>
-          <RotateCcw size={24} className="mb-1" /> ÜRETİMDEN İADE
-        </button>
-      </div>
-
-      {/* DÜZELTME: overflow-visible eklendi ki liste dışarı taşabilsin */}
-      <div className="bg-white rounded-2xl shadow-xl border-2 border-blue-600 overflow-visible relative z-20">
-        
-        {/* --- FORM BAŞLIK ALANI --- */}
-        <div className="p-6 bg-gray-50 border-b-2 border-gray-200 relative z-30">
-          <div className="grid grid-cols-2 gap-6 mb-4 relative z-40">
             
-            {/* PROJE SEÇİMİ (ARANABİLİR) */}
-            <div className='relative z-50'>
-              <label className="block text-sm font-extrabold text-gray-800 mb-1">HANGİ PROJE?</label>
-              <SearchableSelect 
-                options={projects}
-                value={headData.project_id}
-                onChange={(val) => setHeadData({...headData, project_id: val})}
-                placeholder="Proje Ara ve Seç..."
-                icon={Package}
-                formatLabel={(p) => `${p.code} - ${p.name}`}
-              />
-            </div>
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                
+                {/* SOL TARAF: ÜRETİM BİLGİLERİ */}
+                <Card title="1. Üretim Emri Bilgileri" style={{ flex: 1, minWidth: '300px' }} bordered={false}>
+                    <Form layout="vertical">
+                        <Form.Item label="Üretim Fiş No / Belge Adı" required>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <Input 
+                                    prefix={<FileTextOutlined />} 
+                                    value={documentNo} 
+                                    // Edit modunda belge no değiştirilemesin (karışıklığı önlemek için)
+                                    disabled={isEditMode}
+                                    onChange={(e) => setDocumentNo(e.target.value)} 
+                                    placeholder="Otomatik..."
+                                />
+                                {!isEditMode && (
+                                    <Tooltip title="Yeni Numara">
+                                        <Button icon={<ReloadOutlined />} onClick={() => setDocumentNo(generateDocumentNo())} />
+                                    </Tooltip>
+                                )}
+                            </div>
+                        </Form.Item>
 
-            {/* DEPO SEÇİMİ (ARANABİLİR) */}
-            <div className='relative z-50'>
-              <label className="block text-sm font-extrabold text-gray-800 mb-1">HANGİ DEPO?</label>
-              <SearchableSelect 
-                options={warehouses}
-                value={headData.warehouse_id}
-                onChange={(val) => setHeadData({...headData, warehouse_id: val})}
-                placeholder="Depo Ara ve Seç..."
-                icon={MapPin}
-                formatLabel={(w) => w.name}
-              />
-            </div>
-          </div>
+                        <Form.Item label="Depo Seçimi" required>
+                            <Select 
+                                value={selectedWarehouse}
+                                onChange={setSelectedWarehouse}
+                                options={warehouses.map(w => ({ value: w.id, label: w.name }))} 
+                            />
+                        </Form.Item>
+                        <Form.Item label="Üretilecek Ürün" required>
+                            <Select
+                                showSearch
+                                placeholder="Stok Ara..."
+                                optionFilterProp="children"
+                                value={targetProduct}
+                                onChange={setTargetProduct}
+                                filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                                options={stocks.map(s => ({ value: s.id, label: `${s.stock_code} - ${s.name}` }))}
+                            />
+                        </Form.Item>
+                        <Form.Item label="Üretim Miktarı">
+                            <InputNumber 
+                                min={1} 
+                                value={targetQuantity} 
+                                onChange={setTargetQuantity} 
+                                style={{ width: '100%' }} 
+                                addonAfter="Adet"
+                            />
+                        </Form.Item>
+                        <Form.Item label="Açıklama">
+                            <Input.TextArea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+                        </Form.Item>
+                    </Form>
+                </Card>
 
-          <div className="grid grid-cols-12 gap-6 relative z-10">
-             <div className="col-span-3">
-                <label className="block text-sm font-extrabold text-gray-800 mb-1 flex items-center gap-2">
-                  <FileText size={16} /> FİŞ NO (AUTO)
-                </label>
-                <input type="text" className="w-full p-3 border-2 border-gray-300 rounded-lg bg-gray-100 font-mono font-bold text-gray-700 h-12" 
-                   value={headData.document_no} 
-                   onChange={(e) => setHeadData({...headData, document_no: e.target.value})} 
-                />
-             </div>
-
-             <div className="col-span-3">
-                <label className="block text-sm font-extrabold text-gray-800 mb-1 flex items-center gap-2">
-                  <Calendar size={16} /> TARİH
-                </label>
-                <input type="date" className="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 h-12" 
-                   value={headData.document_date} 
-                   onChange={(e) => setHeadData({...headData, document_date: e.target.value})} 
-                />
-             </div>
-
-             <div className="col-span-6">
-                <label className="block text-sm font-extrabold text-gray-800 mb-1">AÇIKLAMA</label>
-                <input type="text" className="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 h-12" 
-                   placeholder="Örn: Haftalık üretim çıkışı..."
-                   value={headData.description} 
-                   onChange={(e) => setHeadData({...headData, description: e.target.value})} 
-                />
-             </div>
-          </div>
-        </div>
-
-        {/* --- ÜRÜN EKLEME ALANI --- */}
-        <div className="p-6 bg-white border-b-2 border-gray-100 relative z-20">
-          <label className="block text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-             <List size={20} className="text-blue-600" /> LİSTEYE ÜRÜN EKLE
-          </label>
-          
-          <div className="flex flex-col md:flex-row gap-4 items-end bg-blue-50 p-5 rounded-xl border border-blue-200">
-            
-            {/* ÜRÜN SEÇİMİ (ARANABİLİR - Z-INDEX YÜKSEK) */}
-            <div className="flex-grow w-full relative z-[60]">
-              <span className="text-xs text-gray-600 font-bold mb-1 block">MALZEME / ÜRÜN</span>
-              <SearchableSelect 
-                options={stocks}
-                value={newLine.stock_id}
-                onChange={(val) => setNewLine({...newLine, stock_id: val})}
-                placeholder="Stok Kodu veya Adı Ara..."
-                formatLabel={(s) => `${s.name} (${s.stock_code})`}
-              />
-            </div>
-
-            <div className="w-full md:w-32 flex-shrink-0 relative z-10">
-              <span className="text-xs text-gray-600 font-bold mb-1 block">MİKTAR</span>
-              <input type="number" step="0.01" className="w-full p-3 border-2 border-gray-300 rounded-lg font-bold text-center text-gray-900 h-12 text-lg focus:border-blue-600 focus:outline-none"
-                placeholder="0.00"
-                value={newLine.quantity} onChange={(e) => setNewLine({...newLine, quantity: e.target.value})} />
-            </div>
-
-            <button onClick={handleAddLine}
-              className="h-12 w-full md:w-48 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-2 font-bold shadow-md flex-shrink-0 transition-colors relative z-10">
-              <Plus size={24} />
-              <span>LİSTEYE EKLE</span>
-            </button>
-          </div>
-        </div>
-
-        {/* --- LİSTE TABLOSU --- */}
-        <div className="p-6 relative z-10">
-            <div className="border-2 border-gray-200 rounded-lg overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-100">
-                        <tr>
-                            <th className="px-4 py-3 text-left text-sm font-bold text-gray-700 uppercase">Ürün Kodu</th>
-                            <th className="px-4 py-3 text-left text-sm font-bold text-gray-700 uppercase">Ürün Adı</th>
-                            <th className="px-4 py-3 text-center text-sm font-bold text-gray-700 uppercase">Miktar</th>
-                            <th className="px-4 py-3 text-right text-sm font-bold text-gray-700 uppercase">İşlem</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {lineItems.length === 0 ? (
-                            <tr>
-                                <td colSpan="4" className="px-4 py-10 text-center text-gray-500 italic text-lg">
-                                    Henüz ürün eklenmedi.
-                                </td>
-                            </tr>
-                        ) : (
-                            lineItems.map((item) => (
-                                <tr key={item.id} className="hover:bg-gray-50 border-b last:border-0">
-                                    <td className="px-4 py-3 text-sm text-gray-800 font-mono font-bold">{item.stock_code}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-800 font-medium">{item.stock_name}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-900 font-extrabold text-center bg-gray-50">{item.quantity}</td>
-                                    <td className="px-4 py-3 text-right">
-                                        <button onClick={() => handleRemoveLine(item.id)} className="text-white bg-red-500 hover:bg-red-600 p-2 rounded-lg transition-colors">
-                                            <Trash2 size={18} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))
+                {/* SAĞ TARAF: REÇETE / MALZEMELER */}
+                <Card title="2. Kullanılacak Malzemeler (Reçete)" style={{ flex: 2, minWidth: '400px' }}>
+                    <Table
+                        dataSource={ingredients}
+                        rowKey={(record, index) => index}
+                        pagination={false}
+                        size="small"
+                        footer={() => (
+                            <Button type="dashed" onClick={addIngredientRow} block icon={<PlusOutlined />}>
+                                Malzeme Ekle
+                            </Button>
                         )}
-                    </tbody>
-                </table>
+                        columns={[
+                            {
+                                title: 'Hammadde / Malzeme',
+                                dataIndex: 'stock_id',
+                                render: (text, record, index) => (
+                                    <Select
+                                        showSearch
+                                        style={{ width: '100%' }}
+                                        placeholder="Malzeme Seç"
+                                        value={record.stock_id}
+                                        onChange={(val) => updateIngredient(index, 'stock_id', val)}
+                                        filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                                        options={stocks.map(s => ({ value: s.id, label: `${s.stock_code} - ${s.name}` }))}
+                                    />
+                                )
+                            },
+                            {
+                                title: 'Miktar',
+                                dataIndex: 'quantity',
+                                width: 120,
+                                render: (text, record, index) => (
+                                    <InputNumber 
+                                        min={0.01} 
+                                        value={record.quantity} 
+                                        onChange={(val) => updateIngredient(index, 'quantity', val)} 
+                                        style={{ width: '100%' }} 
+                                    />
+                                )
+                            },
+                            {
+                                title: '',
+                                width: 50,
+                                render: (_, record, index) => (
+                                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeIngredient(index)} />
+                                )
+                            }
+                        ]}
+                    />
+                </Card>
+            </div>
+
+            <Divider />
+
+            <div style={{ textAlign: 'right' }}>
+                <Space>
+                    <div style={{ color: isEditMode ? '#d46b08' : '#888', marginRight: 10 }}>
+                        {isEditMode 
+                            ? "* Güncelleme yapıldığında eski kayıt silinip yenisi oluşturulur." 
+                            : "* Stoklar otomatik düşecek, yeni ürün maliyeti hesaplanıp eklenecek."
+                        }
+                    </div>
+                    <Button 
+                        type="primary" 
+                        size="large" 
+                        icon={<SaveOutlined />} 
+                        onClick={handleProduction}
+                        loading={loading}
+                        className={isEditMode ? 'bg-orange-600 hover:bg-orange-500' : ''}
+                    >
+                        {isEditMode ? 'Üretimi Güncelle' : 'Üretimi Kaydet'}
+                    </Button>
+                </Space>
             </div>
         </div>
-
-      </div>
-    </div>
-  );
+    );
 };
 
 export default Production;

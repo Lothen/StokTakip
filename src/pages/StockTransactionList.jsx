@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../supabase'; 
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRightLeft, Search, Edit, Trash2, ArrowRight, Building2, Briefcase, Calendar, Filter, X, Layers, ChevronDown, MapPin } from 'lucide-react';
+import { ArrowRightLeft, Search, Edit, Trash2, ArrowRight, Building2, Briefcase, Calendar, Filter, X, Layers, ChevronDown } from 'lucide-react';
 
-// --- (YENİ) BU SAYFA İÇİN ÖZEL ARAMALI SELECT BİLEŞENİ ---
+// --- FİLTRELEME İÇİN SELECT BİLEŞENİ ---
 const FilterSelect = ({ options, value, onChange, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -20,7 +20,7 @@ const FilterSelect = ({ options, value, onChange, placeholder }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [wrapperRef]);
 
-  const selectedItem = options.find(opt => opt.id === value);
+  const selectedItem = options.find(opt => opt.uniqueKey === value || opt.id === value);
 
   const filteredOptions = options.filter(opt => 
     opt.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -69,7 +69,7 @@ const FilterSelect = ({ options, value, onChange, placeholder }) => {
              ) : (
                filteredOptions.map(opt => (
                  <div 
-                   key={opt.uniqueKey} // uniqueKey kullanıyoruz çünkü ID'ler çakışabilir
+                   key={opt.uniqueKey} 
                    onClick={() => { onChange(opt.id); setIsOpen(false); setSearchTerm(''); }}
                    className={`p-2 text-sm cursor-pointer border-b border-gray-50 hover:bg-blue-50 flex items-center gap-2
                    ${value === opt.id ? 'bg-blue-100 font-bold text-blue-800' : 'text-gray-700'}`}
@@ -100,7 +100,7 @@ const StockTransactionList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
-  const [filterLocation, setFilterLocation] = useState(''); // Hem depo hem proje ID'si olabilir
+  const [filterLocation, setFilterLocation] = useState(''); 
   const [filterType, setFilterType] = useState('');
 
   useEffect(() => {
@@ -159,7 +159,11 @@ const StockTransactionList = () => {
         };
       }
       
+      // Kalem sayısını hesapla
       if (item.direction === -1 || (item.transaction_type === 'production_return' && item.direction === 1)) {
+         groups[docNo].itemCount += 1;
+      }
+      if ((item.transaction_type === 'production' || item.transaction_type === 'purchase') && item.direction === 1) {
          groups[docNo].itemCount += 1;
       }
 
@@ -187,11 +191,15 @@ const StockTransactionList = () => {
     else setTransactions(transactions.filter(t => t.document_no !== docNo));
   };
 
-  const handleEditClick = (docNo) => {
-    navigate(`/hareketler/duzenle/${docNo}`);
+  const handleEditClick = (row) => {
+    if (row.transaction_type === 'production' || row.transaction_type === 'usage') {
+        navigate(`/uretim?docNo=${row.document_no}`);
+    } else {
+        navigate(`/hareketler/duzenle/${row.document_no}`);
+    }
   };
 
-  // --- GELİŞMİŞ FİLTRELEME ---
+  // --- FİLTRELEME MANTIĞI ---
   const filteredData = transactions.filter(item => {
     const matchesSearch = searchTerm === '' || 
       item.document_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -201,17 +209,18 @@ const StockTransactionList = () => {
     const matchesStartDate = !filterStartDate || itemDate >= new Date(filterStartDate);
     const matchesEndDate = !filterEndDate || itemDate <= new Date(filterEndDate);
 
-    // YENİ: Hem Depo Hem Proje ID'sine bakar
     const matchesLocation = !filterLocation || 
       item.outLocation?.id === filterLocation ||
       item.inLocation?.id === filterLocation;
 
     let matchesType = true;
     if (filterType) {
-        if (filterType === 'w2w') matchesType = item.transaction_type.includes('transfer') && !item.transaction_type.includes('project');
+        if (filterType === 'purchase') matchesType = item.transaction_type === 'purchase';
+        else if (filterType === 'w2w') matchesType = item.transaction_type.includes('transfer') && !item.transaction_type.includes('project');
         else if (filterType === 'w2p') matchesType = item.transaction_type === 'production_out';
         else if (filterType === 'p2w') matchesType = item.transaction_type === 'production_return';
         else if (filterType === 'p2p') matchesType = item.transaction_type.includes('project_transfer');
+        else if (filterType === 'production') matchesType = item.transaction_type === 'production' || item.transaction_type === 'usage';
     }
 
     return matchesSearch && matchesStartDate && matchesEndDate && matchesLocation && matchesType;
@@ -244,7 +253,7 @@ const StockTransactionList = () => {
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <ArrowRightLeft size={28} className="text-blue-600" /> Stok Hareket Listesi
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Giriş, çıkış ve transfer hareketleri</p>
+          <p className="text-sm text-gray-500 mt-1">Giriş, çıkış, transfer ve üretim hareketleri</p>
         </div>
       </div>
 
@@ -255,24 +264,23 @@ const StockTransactionList = () => {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            {/* Metin Arama */}
             <div className="relative">
                 <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
                 <input type="text" placeholder="Fiş No Ara..." className="w-full pl-9 p-2 border rounded-lg text-sm focus:border-blue-500 outline-none"
                     value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
 
-            {/* Hareket Tipi */}
             <select className="w-full p-2 border rounded-lg text-sm bg-white focus:border-blue-500 outline-none"
                 value={filterType} onChange={(e) => setFilterType(e.target.value)}>
                 <option value="">Tüm Hareketler</option>
-                <option value="w2w">Depodan Depoya</option>
-                <option value="w2p">Depodan Projeye</option>
-                <option value="p2w">Projeden Depoya</option>
-                <option value="p2p">Projeden Projeye</option>
+                <option value="purchase">Fatura/İrsaliye Girişi</option>
+                <option value="w2w">Depo Transferi</option>
+                <option value="w2p">Projeye Sevk</option>
+                <option value="p2w">Projeden İade</option>
+                <option value="p2p">Proje Transferi</option>
+                <option value="production">Üretim</option>
             </select>
 
-            {/* GÜNCELLENEN KISIM: Lokasyon Seçimi (Depo + Proje) */}
             <div className="relative z-50">
                <FilterSelect 
                   options={allLocations}
@@ -282,7 +290,6 @@ const StockTransactionList = () => {
                />
             </div>
 
-            {/* Tarih Aralığı */}
             <div className="flex gap-2">
                 <input type="date" className="w-full p-2 border rounded-lg text-xs focus:border-blue-500 outline-none"
                     value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} title="Başlangıç" />
@@ -329,10 +336,12 @@ const StockTransactionList = () => {
                     </td>
                     <td className="px-6 py-4">
                         <div className="text-xs text-gray-600 font-medium">
-                            {row.transaction_type.includes('transfer') && !row.transaction_type.includes('project') ? 'Depo Transferi' : 
+                            {row.transaction_type === 'purchase' ? 'Fatura/İrsaliye Girişi' :
+                             row.transaction_type.includes('transfer') && !row.transaction_type.includes('project') ? 'Depo Transferi' : 
                              row.transaction_type === 'production_out' ? 'Projeye Sevk' :
                              row.transaction_type === 'production_return' ? 'Projeden İade' :
-                             row.transaction_type.includes('project_transfer') ? 'Proje Transferi' : 'Diğer'}
+                             row.transaction_type.includes('project_transfer') ? 'Proje Transferi' :
+                             (row.transaction_type === 'production' || row.transaction_type === 'usage') ? 'Üretim/Birleştirme' : 'Diğer'}
                         </div>
                         <div className="text-[10px] text-gray-400 truncate max-w-[150px]">{row.description}</div>
                     </td>
@@ -346,7 +355,7 @@ const StockTransactionList = () => {
                         </div>
                     </td>
                     <td className="px-6 py-4 text-right whitespace-nowrap">
-                      <button onClick={() => handleEditClick(row.document_no)} className="text-blue-500 hover:text-blue-700 p-2 hover:bg-blue-50 rounded-full mr-2" title="Detay/Düzenle">
+                      <button onClick={() => handleEditClick(row)} className="text-blue-500 hover:text-blue-700 p-2 hover:bg-blue-50 rounded-full mr-2" title="Detay/Düzenle">
                         <Edit size={18} />
                       </button>
                       <button onClick={() => handleDelete(row.document_no)} className="text-gray-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-full" title="Tüm Hareketi Sil">
