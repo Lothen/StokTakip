@@ -8,7 +8,7 @@ const Warehouses = () => {
   const [tenantId, setTenantId] = useState(null);
   
   const [warehouses, setWarehouses] = useState([]);
-  const [warehouseTypes, setWarehouseTypes] = useState([]); // Depo tiplerini tutacak
+  const [warehouseTypes, setWarehouseTypes] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -32,38 +32,36 @@ const Warehouses = () => {
     }
   }, [user]);
 
-  // 1. Depo Tiplerini SQL verisine uygun şekilde çekiyoruz
+  // Depo Tiplerini Çek
   const fetchWarehouseTypes = async () => {
     const { data, error } = await supabase
       .from('warehouse_types')
       .select('*')
-      .order('id', { ascending: true }); // ID 1 (Merkez) en üstte olsun
+      .order('id', { ascending: true });
     
     if (!error && data) {
       setWarehouseTypes(data);
-      // Varsayılan olarak ilk tipi (Genelde Merkez Depo) seç
       if (data.length > 0 && !formData.type_id) {
         setFormData(prev => ({ ...prev, type_id: data[0].id }));
       }
     }
   };
 
+  // Tenant ID Bul ve Depoları Listele
   const getTenantAndFetchData = async () => {
     setLoading(true);
-    // A) Profil'den Tenant ID al
     const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
     
     if (profile) {
       setTenantId(profile.tenant_id);
       
-      // B) Depoları çek (warehouse_types tablosuyla birleştirerek)
       const { data, error } = await supabase
         .from('warehouses')
         .select(`
           *,
           warehouse_types ( name, code, is_virtual ) 
         `)
-        .eq('tenant_id', profile.tenant_id)
+        .eq('tenant_id', profile.tenant_id) // Sadece bu firmanın depoları
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -83,8 +81,8 @@ const Warehouses = () => {
     if (!tenantId) return alert("Firma bilgisi (Tenant) bulunamadı!");
 
     const dataToSend = { 
-      code: formData.code,
-      name: formData.name,
+      code: formData.code.trim(), // Boşlukları temizleyelim
+      name: formData.name.trim(),
       type_id: formData.type_id || null, 
       address: formData.address,
       city: formData.city,
@@ -99,7 +97,8 @@ const Warehouses = () => {
       const { error: err } = await supabase
         .from('warehouses')
         .update(dataToSend)
-        .eq('id', formData.id);
+        .eq('id', formData.id)
+        .eq('tenant_id', tenantId); // Güvenlik: Sadece kendi tenant'ını güncelle
       error = err;
     } else {
       // Ekleme
@@ -110,8 +109,10 @@ const Warehouses = () => {
     }
 
     if (error) {
+      // SQL kısıtlamasını düzelttikten sonra bu hata sadece
+      // AYNI FİRMA içinde aynı kod varsa çalışır.
       if (error.code === '23505') {
-        alert("Bu Depo Kodu sistemde zaten kayıtlı!");
+        alert("Bu Depo Kodu firmanızda zaten mevcut! Lütfen farklı bir kod giriniz.");
       } else {
         alert("Hata: " + error.message);
       }
@@ -124,7 +125,12 @@ const Warehouses = () => {
 
   const handleDelete = async (id) => {
     if (window.confirm("Bu depoyu silmek istediğinize emin misiniz?")) {
-      const { error } = await supabase.from('warehouses').delete().eq('id', id);
+      const { error } = await supabase
+        .from('warehouses')
+        .delete()
+        .eq('id', id)
+        .eq('tenant_id', tenantId); // Güvenlik
+
       if (!error) getTenantAndFetchData();
       else alert("Silme hatası: " + error.message);
     }
@@ -135,7 +141,6 @@ const Warehouses = () => {
       id: null, 
       code: '', 
       name: '', 
-      // Listeyi sıfırlarken yine ilk seçeneği (Merkez Depo) varsayılan yapalım
       type_id: warehouseTypes.length > 0 ? warehouseTypes[0].id : '', 
       address: '', 
       city: '', 
@@ -205,7 +210,6 @@ const Warehouses = () => {
                       <span className="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-0.5 rounded border border-blue-100">
                         {w.warehouse_types?.name || 'Belirsiz'}
                       </span>
-                      {/* Sanal Depo İse Göster */}
                       {w.warehouse_types?.is_virtual && (
                          <span className="text-[10px] text-gray-500 flex items-center gap-1">
                             <Info size={10} /> Sanal Depo

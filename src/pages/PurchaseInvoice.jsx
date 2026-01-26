@@ -96,7 +96,7 @@ const PurchaseInvoice = () => {
   const [companies, setCompanies] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [stockList, setStockList] = useState([]);
-  const [currencies, setCurrencies] = useState([]); // YENİ: Döviz Listesi
+  const [currencies, setCurrencies] = useState([]); 
 
   // Form State
   const [header, setHeader] = useState({
@@ -106,15 +106,14 @@ const PurchaseInvoice = () => {
     document_no: '',
     issue_date: new Date().toISOString().split('T')[0],
     description: '',
-    currency_id: '', // YENİ
-    exchange_rate: 1 // YENİ (Varsayılan 1)
+    currency_id: '', 
+    exchange_rate: 1 
   });
 
   const [items, setItems] = useState([
     { stock_id: '', quantity: 1, unit_price: 0, discount_rate: 0, tax_rate: 20 }
   ]);
 
-  // Aktif Para Birimi Sembolünü Bul
   const activeCurrency = currencies.find(c => c.id === header.currency_id);
   const currencySymbol = activeCurrency ? activeCurrency.symbol : '₺';
 
@@ -135,15 +134,25 @@ const PurchaseInvoice = () => {
     supabase.from('warehouses').select('id, name').eq('tenant_id', tenantId)
       .then(res => setWarehouses(res.data || []));
 
-    // Stoklar
-    supabase.from('stocks').select('id, name, stock_code').eq('tenant_id', tenantId)
-      .then(res => setStockList(res.data || []));
+    // Stoklar ve BİRİMLERİ Çek (GÜNCELLENDİ: units(name) eklendi)
+    supabase.from('stocks')
+      .select('id, name, stock_code, units (name)') // units tablosundan ismini alıyoruz
+      .eq('tenant_id', tenantId)
+      .then(res => {
+         // Veriyi düzeltip listeye atalım
+         const formattedStocks = res.data?.map(s => ({
+            id: s.id,
+            name: s.name,
+            stock_code: s.stock_code,
+            unit: s.units?.name || '' // Birim adı
+         })) || [];
+         setStockList(formattedStocks);
+      });
 
-    // YENİ: Para Birimleri
+    // Para Birimleri
     supabase.from('currencies').select('id, name, code, symbol, exchange_rate').eq('tenant_id', tenantId)
       .then(res => {
         setCurrencies(res.data || []);
-        // Varsayılan olarak TL'yi (veya exchange_rate=1 olanı) seçelim
         const defaultCurr = res.data?.find(c => c.exchange_rate === 1);
         if (defaultCurr) {
             setHeader(prev => ({ ...prev, currency_id: defaultCurr.id, exchange_rate: 1 }));
@@ -151,7 +160,6 @@ const PurchaseInvoice = () => {
       });
   };
 
-  // Para Birimi Seçildiğinde Kuru Otomatik Getir
   const handleCurrencyChange = (currId) => {
     const selectedCurr = currencies.find(c => c.id === currId);
     setHeader({
@@ -161,7 +169,6 @@ const PurchaseInvoice = () => {
     });
   };
 
-  // Hesaplamalar
   const calculateLineTotal = (item) => {
     const gross = item.quantity * item.unit_price;
     const discountAmount = gross * (item.discount_rate / 100);
@@ -198,12 +205,16 @@ const PurchaseInvoice = () => {
       alert("Lütfen Tedarikçi, Depo, Belge No ve Para Birimi alanlarını doldurun.");
       return;
     }
+    // Basit Validasyon
+    if (items.some(i => !i.stock_id || i.quantity <= 0)) {
+        alert("Lütfen tüm satırlarda ürün seçin ve miktar girin.");
+        return;
+    }
 
     setLoading(true);
     try {
       const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
 
-      // Başlığı Kaydet (YENİ ALANLAR EKLENDİ)
       const { data: invoiceData, error: invoiceError } = await supabase
         .from('purchase_invoices')
         .insert({
@@ -214,8 +225,8 @@ const PurchaseInvoice = () => {
           document_no: header.document_no,
           issue_date: header.issue_date,
           description: header.description,
-          currency_id: header.currency_id, // Döviz ID
-          exchange_rate: parseFloat(header.exchange_rate), // Döviz Kuru
+          currency_id: header.currency_id, 
+          exchange_rate: parseFloat(header.exchange_rate), 
           total_amount: totals.grandTotal,
           status: 'Onaylandı',
           created_by: user.id
@@ -225,7 +236,6 @@ const PurchaseInvoice = () => {
 
       if (invoiceError) throw invoiceError;
 
-      // Satırları Kaydet
       const invoiceItems = items.map(item => ({
         tenant_id: profile.tenant_id,
         invoice_id: invoiceData.id,
@@ -274,7 +284,7 @@ const PurchaseInvoice = () => {
       {/* --- FORM KISMI --- */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6 w-full">
         
-        {/* ÜST SATIR (Cari, Depo, Belge No) */}
+        {/* ÜST SATIR */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
           <div className="md:col-span-1 relative z-30"> 
             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Tedarikçi</label>
@@ -286,7 +296,7 @@ const PurchaseInvoice = () => {
           </div>
           <div className="md:col-span-1">
              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Belge No</label>
-             <input type="text" placeholder="GIB2026..." className="w-full p-3 border border-gray-300 rounded-lg outline-none font-mono h-[50px]" value={header.document_no} onChange={e => setHeader({...header, document_no: e.target.value})} />
+             <input type="text" placeholder="Örn: GIB2026..." className="w-full p-3 border border-gray-300 rounded-lg outline-none font-mono h-[50px]" value={header.document_no} onChange={e => setHeader({...header, document_no: e.target.value})} />
           </div>
           <div className="md:col-span-1">
              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Tarih</label>
@@ -294,10 +304,8 @@ const PurchaseInvoice = () => {
           </div>
         </div>
 
-        {/* ALT SATIR (DÖVİZ VE TİP) - YENİ EKLENDİ */}
+        {/* ALT SATIR */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 border-t pt-4 border-gray-100">
-            
-            {/* 1. PARA BİRİMİ SEÇİMİ */}
             <div className="md:col-span-1">
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-1">
                     <Coins size={14} className="text-orange-500"/> Para Birimi
@@ -318,14 +326,12 @@ const PurchaseInvoice = () => {
                 </div>
             </div>
 
-            {/* 2. KUR GİRİŞİ */}
             <div className="md:col-span-1">
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-1">
                     <RefreshCw size={14} className="text-blue-500"/> İşlem Kuru
                 </label>
                 <input 
-                    type="number" 
-                    step="0.0001"
+                    type="number" step="0.0001"
                     className="w-full p-3 border border-gray-300 rounded-lg font-mono font-bold text-right outline-none h-[50px] focus:ring-2 focus:ring-blue-500"
                     value={header.exchange_rate}
                     onChange={e => setHeader({...header, exchange_rate: e.target.value})}
@@ -342,12 +348,10 @@ const PurchaseInvoice = () => {
                </select>
             </div>
             
-            {/* Açıklama */}
             <div className="md:col-span-1">
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Açıklama</label>
                 <input type="text" placeholder="Genel açıklama..." className="w-full p-3 border border-gray-300 rounded-lg outline-none h-[50px]" value={header.description} onChange={e => setHeader({...header, description: e.target.value})} />
             </div>
-
         </div>
       </div>
 
@@ -358,7 +362,7 @@ const PurchaseInvoice = () => {
             <tr>
               <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-10">#</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-[30%]">Ürün</th>
-              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-[10%]">Miktar</th>
+              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-[15%]">Miktar</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-[15%]">
                 Birim Fiyat <span className="text-orange-600">({currencySymbol})</span>
               </th>
@@ -369,39 +373,54 @@ const PurchaseInvoice = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {items.map((item, index) => (
-              <tr key={index} className="hover:bg-blue-50/30 transition-colors">
-                <td className="px-4 py-2 text-center text-gray-400 font-mono text-xs">{index + 1}</td>
-                <td className="px-4 py-2">
-                  <select className="w-full p-2 border border-gray-300 rounded bg-white text-sm outline-none" value={item.stock_id} onChange={e => handleItemChange(index, 'stock_id', e.target.value)}>
-                    <option value="">Ürün Seçiniz...</option>
-                    {stockList.map(s => <option key={s.id} value={s.id}>{s.stock_code} - {s.name}</option>)}
-                  </select>
-                </td>
-                <td className="px-4 py-2"><input type="number" min="1" className="w-full p-2 border border-gray-300 rounded text-center font-bold outline-none" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', e.target.value)} /></td>
-                <td className="px-4 py-2">
-                  <div className="relative">
-                    <input type="number" min="0" step="0.01" className="w-full p-2 pl-6 border border-gray-300 rounded text-right font-mono outline-none" value={item.unit_price} onChange={e => handleItemChange(index, 'unit_price', e.target.value)} />
-                    <span className="absolute left-2 top-2 text-gray-400 text-xs font-bold">{currencySymbol}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-2"><input type="number" min="0" max="100" className="w-full p-2 border border-purple-200 bg-purple-50 rounded text-center font-bold text-purple-700 outline-none" value={item.discount_rate} onChange={e => handleItemChange(index, 'discount_rate', e.target.value)} /></td>
-                <td className="px-4 py-2">
-                    <select className="w-full p-2 border border-gray-300 rounded text-center text-sm outline-none" value={item.tax_rate} onChange={e => handleItemChange(index, 'tax_rate', e.target.value)}>
-                      <option value="0">%0</option>
-                      <option value="1">%1</option>
-                      <option value="10">%10</option>
-                      <option value="20">%20</option>
-                    </select>
-                </td>
-                <td className="px-4 py-2 text-right font-bold text-gray-800">
-                  {calculateLineTotal(item).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {currencySymbol}
-                </td>
-                <td className="px-4 py-2 text-center">
-                  <button onClick={() => handleRemoveItem(index)} className="text-red-400 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
-                </td>
-              </tr>
-            ))}
+            {items.map((item, index) => {
+              // Seçili stok birimini bul
+              const currentStock = stockList.find(s => s.id === item.stock_id);
+              const unitName = currentStock ? currentStock.unit : '';
+
+              return (
+                <tr key={index} className="hover:bg-blue-50/30 transition-colors">
+                    <td className="px-4 py-2 text-center text-gray-400 font-mono text-xs">{index + 1}</td>
+                    
+                    <td className="px-4 py-2">
+                        <select className="w-full p-2 border border-gray-300 rounded bg-white text-sm outline-none" value={item.stock_id} onChange={e => handleItemChange(index, 'stock_id', e.target.value)}>
+                            <option value="">Ürün Seçiniz...</option>
+                            {stockList.map(s => <option key={s.id} value={s.id}>{s.stock_code} - {s.name}</option>)}
+                        </select>
+                    </td>
+
+                    {/* MİKTAR VE BİRİM YAN YANA */}
+                    <td className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                            <input type="number" min="1" className="w-full p-2 border border-gray-300 rounded text-center font-bold text-gray-700 outline-none focus:border-blue-500" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', e.target.value)} />
+                            <span className="text-xs text-gray-500 font-bold whitespace-nowrap min-w-[30px]">{unitName}</span>
+                        </div>
+                    </td>
+
+                    <td className="px-4 py-2">
+                        <div className="relative">
+                            <input type="number" min="0" step="0.01" className="w-full p-2 pl-6 border border-gray-300 rounded text-right font-mono outline-none" value={item.unit_price} onChange={e => handleItemChange(index, 'unit_price', e.target.value)} />
+                            <span className="absolute left-2 top-2 text-gray-400 text-xs font-bold">{currencySymbol}</span>
+                        </div>
+                    </td>
+                    <td className="px-4 py-2"><input type="number" min="0" max="100" className="w-full p-2 border border-purple-200 bg-purple-50 rounded text-center font-bold text-purple-700 outline-none" value={item.discount_rate} onChange={e => handleItemChange(index, 'discount_rate', e.target.value)} /></td>
+                    <td className="px-4 py-2">
+                        <select className="w-full p-2 border border-gray-300 rounded text-center text-sm outline-none" value={item.tax_rate} onChange={e => handleItemChange(index, 'tax_rate', e.target.value)}>
+                            <option value="0">%0</option>
+                            <option value="1">%1</option>
+                            <option value="10">%10</option>
+                            <option value="20">%20</option>
+                        </select>
+                    </td>
+                    <td className="px-4 py-2 text-right font-bold text-gray-800">
+                        {calculateLineTotal(item).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {currencySymbol}
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                        <button onClick={() => handleRemoveItem(index)} className="text-red-400 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
+                    </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         <div className="p-4 border-t border-gray-200 bg-gray-50">
