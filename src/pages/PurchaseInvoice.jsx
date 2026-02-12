@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Save, Plus, Trash2, FileText, Building2, User, Search, ChevronDown, Coins, RefreshCw } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Save, Plus, Trash2, FileText, Building2, User, Search, ChevronDown, Coins, RefreshCw, ArrowLeft } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom'; // useParams eklendi
 
 // --- ARAMALI SEÇİM KUTUSU (Değişmedi) ---
 const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon }) => {
@@ -90,7 +90,13 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
 const PurchaseInvoice = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { documentNo } = useParams(); // URL parametresini al
+  
+  // Düzenleme modu kontrolü
+  const isEditMode = !!documentNo; 
+
   const [loading, setLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(false);
 
   // Veri Listeleri
   const [companies, setCompanies] = useState([]);
@@ -100,6 +106,7 @@ const PurchaseInvoice = () => {
 
   // Form State
   const [header, setHeader] = useState({
+    id: null, // ID eklendi (Update için gerekli)
     company_id: '',
     warehouse_id: '',
     document_type: 'Fatura',
@@ -117,9 +124,23 @@ const PurchaseInvoice = () => {
   const activeCurrency = currencies.find(c => c.id === header.currency_id);
   const currencySymbol = activeCurrency ? activeCurrency.symbol : '₺';
 
+  // Sayfa Yüklenirken
   useEffect(() => {
-    if (user) fetchDependencies();
-  }, [user]);
+    if (user) {
+        initializePage();
+    }
+  }, [user, documentNo]);
+
+  const initializePage = async () => {
+      setDataLoading(true);
+      await fetchDependencies();
+      
+      // Eğer düzenleme modundaysak, mevcut veriyi çek
+      if (isEditMode) {
+          await fetchInvoiceData(documentNo);
+      }
+      setDataLoading(false);
+  };
 
   const fetchDependencies = async () => {
     const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
@@ -134,17 +155,16 @@ const PurchaseInvoice = () => {
     supabase.from('warehouses').select('id, name').eq('tenant_id', tenantId)
       .then(res => setWarehouses(res.data || []));
 
-    // Stoklar ve BİRİMLERİ Çek (GÜNCELLENDİ: units(name) eklendi)
+    // Stoklar ve Birimler
     supabase.from('stocks')
-      .select('id, name, stock_code, units (name)') // units tablosundan ismini alıyoruz
+      .select('id, name, stock_code, units (name)') 
       .eq('tenant_id', tenantId)
       .then(res => {
-         // Veriyi düzeltip listeye atalım
          const formattedStocks = res.data?.map(s => ({
             id: s.id,
             name: s.name,
             stock_code: s.stock_code,
-            unit: s.units?.name || '' // Birim adı
+            unit: s.units?.name || '' 
          })) || [];
          setStockList(formattedStocks);
       });
@@ -153,11 +173,58 @@ const PurchaseInvoice = () => {
     supabase.from('currencies').select('id, name, code, symbol, exchange_rate').eq('tenant_id', tenantId)
       .then(res => {
         setCurrencies(res.data || []);
-        const defaultCurr = res.data?.find(c => c.exchange_rate === 1);
-        if (defaultCurr) {
-            setHeader(prev => ({ ...prev, currency_id: defaultCurr.id, exchange_rate: 1 }));
+        // Yeni kayıtsa ve henüz seçilmediyse varsayılanı seç
+        if (!isEditMode && !header.currency_id) {
+            const defaultCurr = res.data?.find(c => c.exchange_rate === 1);
+            if (defaultCurr) {
+                setHeader(prev => ({ ...prev, currency_id: defaultCurr.id, exchange_rate: 1 }));
+            }
         }
       });
+  };
+
+  // Mevcut Fatura Verisini Çek
+  const fetchInvoiceData = async (docNo) => {
+      // 1. Başlığı Çek
+      const { data: invoice, error } = await supabase
+          .from('purchase_invoices')
+          .select('*')
+          .eq('document_no', docNo)
+          .single();
+
+      if (error || !invoice) {
+          alert("Fatura bulunamadı!");
+          return;
+      }
+
+      setHeader({
+          id: invoice.id,
+          company_id: invoice.company_id,
+          warehouse_id: invoice.warehouse_id,
+          document_type: invoice.document_type,
+          document_no: invoice.document_no,
+          issue_date: invoice.issue_date,
+          description: invoice.description || '',
+          currency_id: invoice.currency_id,
+          exchange_rate: invoice.exchange_rate
+      });
+
+      // 2. Kalemleri Çek
+      const { data: invoiceItems } = await supabase
+          .from('purchase_invoice_items')
+          .select('*')
+          .eq('invoice_id', invoice.id);
+
+      if (invoiceItems) {
+          const formattedItems = invoiceItems.map(item => ({
+              stock_id: item.stock_id,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              discount_rate: item.discount_rate,
+              tax_rate: item.tax_rate
+          }));
+          setItems(formattedItems.length > 0 ? formattedItems : [{ stock_id: '', quantity: 1, unit_price: 0, discount_rate: 0, tax_rate: 20 }]);
+      }
   };
 
   const handleCurrencyChange = (currId) => {
@@ -205,7 +272,6 @@ const PurchaseInvoice = () => {
       alert("Lütfen Tedarikçi, Depo, Belge No ve Para Birimi alanlarını doldurun.");
       return;
     }
-    // Basit Validasyon
     if (items.some(i => !i.stock_id || i.quantity <= 0)) {
         alert("Lütfen tüm satırlarda ürün seçin ve miktar girin.");
         return;
@@ -215,9 +281,10 @@ const PurchaseInvoice = () => {
     try {
       const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
 
-      const { data: invoiceData, error: invoiceError } = await supabase
-        .from('purchase_invoices')
-        .insert({
+      let invoiceId = header.id;
+
+      // Veri Hazırlama
+      const invoicePayload = {
           tenant_id: profile.tenant_id,
           company_id: header.company_id,
           warehouse_id: header.warehouse_id,
@@ -230,15 +297,41 @@ const PurchaseInvoice = () => {
           total_amount: totals.grandTotal,
           status: 'Onaylandı',
           created_by: user.id
-        })
-        .select()
-        .single();
+      };
 
-      if (invoiceError) throw invoiceError;
+      if (isEditMode && invoiceId) {
+          // --- GÜNCELLEME (UPDATE) ---
+          const { error: updateError } = await supabase
+              .from('purchase_invoices')
+              .update(invoicePayload)
+              .eq('id', invoiceId);
+          
+          if (updateError) throw updateError;
 
+          // Kalemleri güncellemek yerine: Eskileri sil, yenileri ekle (En temiz yöntem)
+          const { error: deleteError } = await supabase
+              .from('purchase_invoice_items')
+              .delete()
+              .eq('invoice_id', invoiceId);
+          
+          if (deleteError) throw deleteError;
+
+      } else {
+          // --- YENİ KAYIT (INSERT) ---
+          const { data: newInvoice, error: insertError } = await supabase
+              .from('purchase_invoices')
+              .insert(invoicePayload)
+              .select()
+              .single();
+          
+          if (insertError) throw insertError;
+          invoiceId = newInvoice.id;
+      }
+
+      // Kalemleri Ekle (Her iki durumda da çalışır)
       const invoiceItems = items.map(item => ({
         tenant_id: profile.tenant_id,
-        invoice_id: invoiceData.id,
+        invoice_id: invoiceId,
         stock_id: item.stock_id,
         quantity: parseFloat(item.quantity),
         unit_price: parseFloat(item.unit_price),
@@ -250,8 +343,10 @@ const PurchaseInvoice = () => {
       const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(invoiceItems);
       if (itemsError) throw itemsError;
 
-      alert("Fatura başarıyla kaydedildi!");
-      navigate('/satinalma/gecmis');
+      alert(isEditMode ? "Fatura başarıyla güncellendi!" : "Fatura başarıyla oluşturuldu!");
+      
+      // Kayıttan sonra listeye dönmek mantıklıdır
+      navigate('/hareketler/liste'); 
 
     } catch (error) {
       console.error("Kaydetme hatası:", error);
@@ -261,23 +356,38 @@ const PurchaseInvoice = () => {
     }
   };
 
+  if (dataLoading) {
+      return <div className="p-10 text-center text-gray-500">Fatura verileri yükleniyor...</div>;
+  }
+
   return (
     <div className="w-full p-6">
       
       {/* BAŞLIK */}
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <FileText size={28} className="text-blue-600" /> Yeni Satınalma Girişi
-          </h1>
-          <p className="text-sm text-gray-500">Tedarikçiden gelen Fatura veya İrsaliyeyi sisteme işleyin.</p>
+          <div className="flex items-center gap-2">
+              {/* Düzenleme modundaysa geri butonu göster */}
+              {isEditMode && (
+                  <button onClick={() => navigate('/hareketler/liste')} className="p-2 hover:bg-gray-100 rounded-full transition">
+                      <ArrowLeft size={24} className="text-gray-600"/>
+                  </button>
+              )}
+              <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <FileText size={28} className="text-blue-600" /> 
+                {isEditMode ? 'Faturayı Düzenle' : 'Yeni Satınalma Girişi'}
+              </h1>
+          </div>
+          <p className="text-sm text-gray-500 ml-10">
+              {isEditMode ? `${header.document_no} nolu belgeyi düzenliyorsunuz.` : 'Tedarikçiden gelen Fatura veya İrsaliyeyi sisteme işleyin.'}
+          </p>
         </div>
         <button 
           onClick={handleSave}
           disabled={loading}
           className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-all disabled:opacity-50"
         >
-          <Save size={20} /> {loading ? 'Kaydediliyor...' : 'Kaydet ve Onayla'}
+          <Save size={20} /> {loading ? 'İşleniyor...' : (isEditMode ? 'Güncelle' : 'Kaydet')}
         </button>
       </div>
 
@@ -296,7 +406,14 @@ const PurchaseInvoice = () => {
           </div>
           <div className="md:col-span-1">
              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Belge No</label>
-             <input type="text" placeholder="Örn: GIB2026..." className="w-full p-3 border border-gray-300 rounded-lg outline-none font-mono h-[50px]" value={header.document_no} onChange={e => setHeader({...header, document_no: e.target.value})} />
+             <input 
+                type="text" 
+                placeholder="Örn: GIB2026..." 
+                className={`w-full p-3 border border-gray-300 rounded-lg outline-none font-mono h-[50px] ${isEditMode ? 'bg-gray-100 text-gray-500' : ''}`}
+                value={header.document_no} 
+                onChange={e => setHeader({...header, document_no: e.target.value})} 
+                disabled={isEditMode} // Düzenleme modunda belge no değişmesin
+             />
           </div>
           <div className="md:col-span-1">
              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Tarih</label>

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-// YENİ EKLENEN İKON: ShoppingCart (Satınalma için)
 import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2, Warehouse, FolderKanban, Network, Factory, ChevronDown, ChevronRight, PlusCircle, List, BarChart3, Filter, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -22,19 +21,17 @@ const Sidebar = () => {
   const menuItems = [
     { path: '/', name: 'Genel Durum', icon: <LayoutDashboard size={20} /> },
     
-    // --- YENİ EKLENEN: SATINALMA MODÜLÜ ---
+    // --- SATINALMA MODÜLÜ ---
     { 
       name: 'Satınalma', 
-      icon: <ShoppingCart size={20} />, // Sepet İkonu
+      icon: <ShoppingCart size={20} />,
       isSubMenu: true,
-      id: 'purchasing', // Kimlik
+      id: 'purchasing',
       children: [
         { path: '/satinalma/yeni', name: 'Yeni Fatura Girişi', icon: <PlusCircle size={16} /> },
-        // Henüz yapmadık ama yeri hazır olsun:
         { path: '/satinalma/gecmis', name: 'Fatura Listesi', icon: <List size={16} /> } 
       ]
     },
-    // --------------------------------------
 
     { path: '/uretim', name: 'Üretim Fişleri', icon: <Factory size={20} /> },
     
@@ -45,6 +42,7 @@ const Sidebar = () => {
       isSubMenu: true,
       id: 'transactions',
       children: [
+        { path: '/stok-giris-fisi', name: 'Hızlı Stok Girişi', icon: <Package size={16} /> },
         { path: '/hareketler/ekle', name: 'Hareket Ekle', icon: <PlusCircle size={16} /> },
         { path: '/hareketler/liste', name: 'Hareket Listesi', icon: <List size={16} /> }
       ]
@@ -67,29 +65,33 @@ const Sidebar = () => {
     { path: '/proje-agaci', name: 'Proje Ağacı', icon: <Network size={20} /> },
     { path: '/stoklar', name: 'Stok Listesi', icon: <Package size={20} /> },
     { path: '/depolar', name: 'Depolar', icon: <Warehouse size={20} /> },
-    { path: '/ayarlar', name: 'Ayarlar', icon: <Settings size={20} /> },
+    
+    // 👇 GÜNCELLEME BURADA: Path kaldırıldı 👇
+    { name: 'Ayarlar', icon: <Settings size={20} /> }, 
   ];
 
-  // Aktif menü kontrolü için yardımcı fonksiyon
+  // Aktif menü kontrolü
   const isMenuActive = (item) => {
-    if (item.id === 'transactions') return location.pathname.includes('/hareketler');
+    if (item.id === 'transactions') {
+        return location.pathname.includes('/hareketler') || location.pathname.includes('/stok-giris-fisi');
+    }
     if (item.id === 'reports') return location.pathname.includes('/stok-durumu');
-    if (item.id === 'purchasing') return location.pathname.includes('/satinalma'); // Satınalma kontrolü
+    if (item.id === 'purchasing') return location.pathname.includes('/satinalma');
     return false;
   };
 
   return (
     <div className="h-screen w-64 bg-slate-900 text-white flex flex-col fixed left-0 top-0 overflow-y-auto z-50">
       <div className="p-6 border-b border-slate-700">
-        <h1 className="text-2xl font-bold text-blue-400">Gem Stok</h1>
-        <p className="text-xs text-slate-400 mt-1">Depo Yönetim Sistemi</p>
+        <h1 className="text-2xl font-bold text-blue-400">Inventra</h1>
+        <p className="text-xs text-slate-400 mt-1">Stok Yönetim Sistemi</p>
       </div>
 
       <nav className="flex-1 p-4 space-y-2">
         {menuItems.map((item, index) => (
           <div key={index}>
             {item.isSubMenu ? (
-              // ALT MENÜLÜ ÖĞE YAPISI
+              // ALT MENÜLÜ ÖĞE YAPISI (Değişmedi)
               <div>
                 <button
                   onClick={() => toggleMenu(item.id)}
@@ -103,7 +105,6 @@ const Sidebar = () => {
                   {openMenu === item.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
                 
-                {/* Alt Linkler */}
                 {(openMenu === item.id || isMenuActive(item)) && (
                   <div className="ml-6 mt-1 space-y-1 border-l-2 border-slate-700 pl-2">
                     {item.children.map((subItem) => (
@@ -121,18 +122,26 @@ const Sidebar = () => {
                 )}
               </div>
             ) : (
-              // NORMAL ÖĞE YAPISI
-              <Link
-                to={item.path}
-                className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${
-                  location.pathname === item.path
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                }`}
-              >
-                {item.icon}
-                <span>{item.name}</span>
-              </Link>
+              // NORMAL ÖĞE YAPISI (GÜNCELLENDİ)
+              // Eğer 'path' varsa Link oluştur, yoksa (Ayarlar gibi) sadece Div oluştur.
+              item.path ? (
+                <Link
+                  to={item.path}
+                  className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${
+                    location.pathname === item.path
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  {item.icon}
+                  <span>{item.name}</span>
+                </Link>
+              ) : (
+                <div className="flex items-center space-x-3 p-3 rounded-lg text-slate-500 cursor-not-allowed">
+                   {item.icon}
+                   <span>{item.name}</span>
+                </div>
+              )
             )}
           </div>
         ))}

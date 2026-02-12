@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../supabase'; 
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient'; // Yolunuza göre ayarlayın
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRightLeft, Search, Edit, Trash2, ArrowRight, Building2, Briefcase, Calendar, Filter, X, Layers, ChevronDown } from 'lucide-react';
 
-// --- FİLTRELEME İÇİN SELECT BİLEŞENİ ---
+// --- FİLTRELEME İÇİN SELECT BİLEŞENİ (DEĞİŞMEDİ) ---
 const FilterSelect = ({ options, value, onChange, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const wrapperRef = useRef(null);
+  const wrapperRef = React.useRef(null);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -163,7 +163,7 @@ const StockTransactionList = () => {
       if (item.direction === -1 || (item.transaction_type === 'production_return' && item.direction === 1)) {
          groups[docNo].itemCount += 1;
       }
-      if ((item.transaction_type === 'production' || item.transaction_type === 'purchase') && item.direction === 1) {
+      if ((item.transaction_type === 'production' || item.transaction_type === 'purchase' || item.transaction_type === 'stock_in') && item.direction === 1) {
          groups[docNo].itemCount += 1;
       }
 
@@ -191,10 +191,23 @@ const StockTransactionList = () => {
     else setTransactions(transactions.filter(t => t.document_no !== docNo));
   };
 
+  // --- GÜNCELLENEN KISIM: YÖNLENDİRME MANTIĞI ---
   const handleEditClick = (row) => {
+    // 1. Üretim veya Sarfiyat ise Üretim ekranına
     if (row.transaction_type === 'production' || row.transaction_type === 'usage') {
         navigate(`/uretim?docNo=${row.document_no}`);
-    } else {
+    } 
+    // 2. Fatura Girişi ise Satınalma (Fatura) Düzenleme ekranına
+    else if (row.transaction_type === 'purchase') {
+        navigate(`/satinalma/duzenle/${row.document_no}`);
+    } 
+    // 3. YENİ EKLENEN: Hızlı Stok Girişi (Devir) ise o sayfaya git
+    else if (row.transaction_type === 'stock_in') {
+        // DocNo parametresi ile gönderiyoruz ki ileride StockEntry sayfası bunu okuyup veriyi yükleyebilsin
+        navigate(`/stok-giris-fisi?docNo=${row.document_no}`);
+    }
+    // 4. Diğerleri (Transfer vb.) standart stok hareket düzenleme ekranına
+    else {
         navigate(`/hareketler/duzenle/${row.document_no}`);
     }
   };
@@ -221,6 +234,7 @@ const StockTransactionList = () => {
         else if (filterType === 'p2w') matchesType = item.transaction_type === 'production_return';
         else if (filterType === 'p2p') matchesType = item.transaction_type.includes('project_transfer');
         else if (filterType === 'production') matchesType = item.transaction_type === 'production' || item.transaction_type === 'usage';
+        else if (filterType === 'stock_in') matchesType = item.transaction_type === 'stock_in'; // Filtreye de ekleyebiliriz
     }
 
     return matchesSearch && matchesStartDate && matchesEndDate && matchesLocation && matchesType;
@@ -274,6 +288,7 @@ const StockTransactionList = () => {
                 value={filterType} onChange={(e) => setFilterType(e.target.value)}>
                 <option value="">Tüm Hareketler</option>
                 <option value="purchase">Fatura/İrsaliye Girişi</option>
+                <option value="stock_in">Hızlı Stok Girişi</option> {/* FİLTREYE DE EKLENDİ */}
                 <option value="w2w">Depo Transferi</option>
                 <option value="w2p">Projeye Sevk</option>
                 <option value="p2w">Projeden İade</option>
@@ -337,6 +352,7 @@ const StockTransactionList = () => {
                     <td className="px-6 py-4">
                         <div className="text-xs text-gray-600 font-medium">
                             {row.transaction_type === 'purchase' ? 'Fatura/İrsaliye Girişi' :
+                             row.transaction_type === 'stock_in' ? 'Hızlı Stok Girişi (Devir)' :
                              row.transaction_type.includes('transfer') && !row.transaction_type.includes('project') ? 'Depo Transferi' : 
                              row.transaction_type === 'production_out' ? 'Projeye Sevk' :
                              row.transaction_type === 'production_return' ? 'Projeden İade' :

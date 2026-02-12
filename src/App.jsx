@@ -16,8 +16,10 @@ import StockStatusSummary from './pages/StockStatusSummary';
 import StockStatusDetail from './pages/StockStatusDetail'; 
 // --- SATINALMA IMPORTLARI ---
 import PurchaseInvoice from './pages/PurchaseInvoice';
-import PurchaseInvoiceList from './pages/PurchaseInvoiceList'; // <--- YENİ EKLENDİ
-// ---------------------------
+import PurchaseInvoiceList from './pages/PurchaseInvoiceList'; 
+// --- STOK GİRİŞ FİŞİ (YENİ EKLENDİ) ---
+import StockEntry from './pages/StockEntry';
+
 import Login from './pages/Login';
 
 // Korumalı Rota Bileşeni
@@ -56,12 +58,24 @@ function App() {
             </ProtectedRoute>
           } />
 
-          <Route path="/satinalma/gecmis" element={ // <--- YENİ EKLENEN ROTA
+          <Route path="/satinalma/duzenle/:documentNo" element={
+            <ProtectedRoute>
+              <PurchaseInvoice />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/satinalma/gecmis" element={ 
             <ProtectedRoute>
               <PurchaseInvoiceList />
             </ProtectedRoute>
           } />
-          {/* ------------------------------------ */}
+          
+          {/* --- STOK GİRİŞ FİŞİ (DEVİR) - YENİ --- */}
+          <Route path="/stok-giris-fisi" element={
+            <ProtectedRoute>
+              <StockEntry />
+            </ProtectedRoute>
+          } />
 
           {/* --- STOK HAREKETLERİ MODÜLÜ --- */}
           <Route path="/hareketler/ekle" element={

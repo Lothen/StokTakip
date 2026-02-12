@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Search, Pencil, Trash2, X, Save, Package } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, X, Save, Package, Tag } from 'lucide-react';
 
 const Stocks = () => {
   const { user } = useAuth();
@@ -17,6 +17,7 @@ const Stocks = () => {
   const [formData, setFormData] = useState({ 
     id: null, 
     stock_code: '', 
+    manufacturer_code: '', // YENİ ALAN: Üretici Kodu
     name: '', 
     second_name: '',
     description: '',
@@ -99,6 +100,7 @@ const Stocks = () => {
 
     const stockData = {
       stock_code: formData.stock_code,
+      manufacturer_code: formData.manufacturer_code, // YENİ ALAN EKLENDİ
       name: formData.name,
       second_name: formData.second_name,
       description: formData.description,
@@ -153,7 +155,10 @@ const Stocks = () => {
   };
 
   const openEditModal = (stock) => {
-    setFormData(stock);
+    setFormData({
+        ...stock,
+        manufacturer_code: stock.manufacturer_code || '' // Null gelirse boş string yap
+    });
     setIsModalOpen(true);
   };
 
@@ -164,6 +169,7 @@ const Stocks = () => {
     setFormData({ 
       id: null, 
       stock_code: '', 
+      manufacturer_code: '', // Sıfırla
       name: '', 
       second_name: '',
       description: '',
@@ -184,7 +190,8 @@ const Stocks = () => {
 
   const filteredStocks = stocks.filter(s => 
     s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.stock_code?.toLowerCase().includes(searchTerm.toLowerCase())
+    s.stock_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.manufacturer_code?.toLowerCase().includes(searchTerm.toLowerCase()) // Üretici kodunda da arama yap
   );
 
   return (
@@ -208,7 +215,7 @@ const Stocks = () => {
         <Search className="absolute left-3 top-3 text-gray-400" size={20} />
         <input 
           type="text" 
-          placeholder="Stok adı veya kodu ile ara..." 
+          placeholder="Stok adı, kodu veya üretici kodu ile ara..." 
           className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -237,7 +244,13 @@ const Stocks = () => {
                 <tr key={stock.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="font-bold text-gray-900">{stock.stock_code}</div>
-                    <div className="text-sm text-gray-700">{stock.name}</div>
+                    {/* Üretici Kodu Gösterimi */}
+                    {stock.manufacturer_code && (
+                        <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                            <Tag size={10} /> Üretici: {stock.manufacturer_code}
+                        </div>
+                    )}
+                    <div className="text-sm text-gray-700 mt-1">{stock.name}</div>
                     {stock.second_name && <div className="text-xs text-gray-400">{stock.second_name}</div>}
                   </td>
                   <td className="px-6 py-4">
@@ -276,7 +289,9 @@ const Stocks = () => {
             </div>
             
             <form onSubmit={handleSave} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              
+              {/* Stok Kodu, Üretici Kodu ve Birim Alanı */}
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Stok Kodu *</label>
                   <input 
@@ -284,6 +299,17 @@ const Stocks = () => {
                     className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
                     value={formData.stock_code}
                     onChange={(e) => setFormData({...formData, stock_code: e.target.value})}
+                  />
+                </div>
+                <div>
+                  {/* YENİ: Üretici Kodu Input */}
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Üretici Kodu</label>
+                  <input 
+                    type="text"
+                    className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.manufacturer_code}
+                    placeholder="Opsiyonel"
+                    onChange={(e) => setFormData({...formData, manufacturer_code: e.target.value})}
                   />
                 </div>
                 <div>
@@ -346,14 +372,14 @@ const Stocks = () => {
                   />
                 </div>
                 <div className="col-span-1">
-                   <label className="block text-sm font-medium text-gray-700 mb-1">Para Birimi</label>
-                   <select 
-                     className="w-full border border-gray-300 rounded-lg p-2"
-                     value={formData.buying_currency_code}
-                     onChange={(e) => setFormData({...formData, buying_currency_code: e.target.value})}
-                   >
-                     {currencies.map(c => <option key={c} value={c}>{c}</option>)}
-                   </select>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Para Birimi</label>
+                    <select 
+                      className="w-full border border-gray-300 rounded-lg p-2"
+                      value={formData.buying_currency_code}
+                      onChange={(e) => setFormData({...formData, buying_currency_code: e.target.value})}
+                    >
+                      {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                 </div>
                 <div className="col-span-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1">KDV Oranı (%)</label>
@@ -376,15 +402,15 @@ const Stocks = () => {
                     onChange={(e) => setFormData({...formData, selling_price: e.target.value})}
                   />
                 </div>
-                 <div className="col-span-1">
-                   <label className="block text-sm font-medium text-gray-700 mb-1">Para Birimi</label>
-                   <select 
-                     className="w-full border border-gray-300 rounded-lg p-2"
-                     value={formData.selling_currency_code}
-                     onChange={(e) => setFormData({...formData, selling_currency_code: e.target.value})}
-                   >
-                     {currencies.map(c => <option key={c} value={c}>{c}</option>)}
-                   </select>
+                  <div className="col-span-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Para Birimi</label>
+                    <select 
+                      className="w-full border border-gray-300 rounded-lg p-2"
+                      value={formData.selling_currency_code}
+                      onChange={(e) => setFormData({...formData, selling_currency_code: e.target.value})}
+                    >
+                      {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                 </div>
               </div>
 
