@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom'; // Yönlendirme için eklendi
-import { FileText, Search, Building2, Briefcase, ChevronDown, Calendar, ArrowRight, Filter, X, ExternalLink } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { FileText, Search, Building2, Briefcase, ChevronDown, Calendar, ArrowRight, Filter, X, ExternalLink, RefreshCw } from 'lucide-react';
 
 // --- ARAMALI SEÇİM BİLEŞENİ (Değişmedi) ---
 const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon }) => {
@@ -93,7 +93,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
 // --- ANA SAYFA ---
 const StockStatusSummary = () => {
   const { user } = useAuth();
-  const navigate = useNavigate(); // Yönlendirme kancası
+  const navigate = useNavigate(); 
   
   // State'ler
   const [selectedStockId, setSelectedStockId] = useState('');
@@ -107,7 +107,7 @@ const StockStatusSummary = () => {
   const [locationList, setLocationList] = useState([]);
   const [transactions, setTransactions] = useState([]);
   
-  // İsim Eşleştirme Sözlükleri (Hızlı Erişim İçin)
+  // İsim Eşleştirme Sözlükleri
   const [warehouseMap, setWarehouseMap] = useState({});
   const [projectMap, setProjectMap] = useState({});
 
@@ -133,7 +133,6 @@ const StockStatusSummary = () => {
     }
   }, [selectedStockId, locationType, selectedLocationId, startDate, endDate]);
 
-  // 1. Başlangıç Verilerini ve Sözlükleri Hazırla
   const fetchInitialData = async () => {
     const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
     if (!profile) return;
@@ -156,9 +155,7 @@ const StockStatusSummary = () => {
     setProjectMap(pMap);
   };
 
-  // 2. Filtre Dropdownını Güncelle
   const updateLocationDropdown = () => {
-    // Map'ten Array'e geri dön (Dropdown için)
     if (locationType === 'Depo') {
       const list = Object.keys(warehouseMap).map(id => ({ id, name: warehouseMap[id] }));
       setLocationList(list);
@@ -168,20 +165,18 @@ const StockStatusSummary = () => {
     }
   };
 
-  // 3. Hareketleri Çek
   const fetchTransactions = async () => {
     setLoading(true);
     const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
 
     let query = supabase
       .from('stock_transactions')
-      .select('*') // Tüm alanları çekiyoruz, isimleri Map'ten bulacağız
+      .select('*')
       .eq('tenant_id', profile.tenant_id)
       .eq('stock_id', selectedStockId)
       .order('document_date', { ascending: false })
       .order('created_at', { ascending: false });
 
-    // Filtreler
     if (locationType === 'Depo' && selectedLocationId) query = query.eq('warehouse_id', selectedLocationId);
     if (locationType === 'Proje' && selectedLocationId) query = query.eq('project_id', selectedLocationId);
     if (startDate) query = query.gte('document_date', startDate);
@@ -206,54 +201,59 @@ const StockStatusSummary = () => {
     setTotals({ in: totalIn, out: totalOut, balance: totalIn - totalOut });
   };
 
-  // --- NEREDEN -> NEREYE MANTIĞI (Görsel Bileşen) ---
+  // --- NEREDEN -> NEREYE MANTIĞI (GÜNCELLENDİ) ---
   const TransactionRoute = ({ row }) => {
-    // 1. Kaynak ve Hedef İsimlerini Bul
     const getBadge = (id, type) => {
       if (!id) return null;
       if (type === 'warehouse') return { name: warehouseMap[id] || 'Silinmiş Depo', color: 'blue', icon: Building2 };
       if (type === 'project') return { name: projectMap[id] || 'Silinmiş Proje', color: 'orange', icon: Briefcase };
-      return { name: 'Dış Kaynak', color: 'gray', icon: ExternalLink }; // Tedarikçi vb.
+      return { name: 'Dış Kaynak', color: 'gray', icon: ExternalLink }; 
     };
 
     let fromBadge = null;
     let toBadge = null;
 
-    // İşlem Tipine Göre Mantık Kur
     if (row.direction === -1) {
       // --- ÇIKIŞ İŞLEMİ ---
-      // Kaynak: Şu anki Konum
-      // Hedef: İlgili Depo veya Proje
       if (row.warehouse_id) fromBadge = getBadge(row.warehouse_id, 'warehouse');
       else if (row.project_id) fromBadge = getBadge(row.project_id, 'project');
 
-      // Hedef Tahmini
       if (row.related_warehouse_id) toBadge = getBadge(row.related_warehouse_id, 'warehouse');
-      else if (row.transaction_type === 'production_out') toBadge = getBadge(row.project_id, 'project'); // W2P'de project_id hedefte olabilir
+      else if (row.transaction_type === 'production_out') toBadge = getBadge(row.project_id, 'project');
       else toBadge = { name: 'Dış/Tüketim', color: 'gray', icon: ExternalLink };
 
     } else {
       // --- GİRİŞ İŞLEMİ ---
-      // Hedef: Şu anki Konum
-      // Kaynak: İlgili Depo veya Proje
       if (row.warehouse_id) toBadge = getBadge(row.warehouse_id, 'warehouse');
       else if (row.project_id) toBadge = getBadge(row.project_id, 'project');
 
-      // Kaynak Tahmini
-      if (row.related_warehouse_id) fromBadge = getBadge(row.related_warehouse_id, 'warehouse');
-      else if (row.transaction_type === 'production_return') fromBadge = getBadge(row.project_id, 'project'); // P2W iadesi
-      else fromBadge = { name: 'Dış/Satınalma', color: 'gray', icon: ExternalLink };
+      // Kaynak Belirleme (GÜNCELLENEN KISIM)
+      if (row.related_warehouse_id) {
+          fromBadge = getBadge(row.related_warehouse_id, 'warehouse');
+      } else if (row.transaction_type === 'production_return') {
+          fromBadge = getBadge(row.project_id, 'project');
+      } else if (row.transaction_type === 'stock_in') {
+          // Stok Giriş Fişi (Sayım/Devir)
+          fromBadge = { name: 'Hızlı Giriş / Devir', color: 'purple', icon: RefreshCw };
+      } else if (row.transaction_type === 'purchase') {
+          // Satınalma Faturası
+          fromBadge = { name: 'Tedarikçi (Satınalma)', color: 'green', icon: ExternalLink };
+      } else {
+          fromBadge = { name: 'Dış Kaynak', color: 'gray', icon: ExternalLink };
+      }
     }
 
-    // Badge Render Fonksiyonu
     const renderBadge = (badge) => {
       if (!badge) return <span className="text-xs text-gray-400">-</span>;
       const Icon = badge.icon;
+      let colorClass = 'text-gray-600 bg-gray-100 border-gray-200';
+      if (badge.color === 'blue') colorClass = 'text-blue-700 bg-blue-50 border-blue-100';
+      if (badge.color === 'orange') colorClass = 'text-orange-700 bg-orange-50 border-orange-100';
+      if (badge.color === 'purple') colorClass = 'text-purple-700 bg-purple-50 border-purple-100';
+      if (badge.color === 'green') colorClass = 'text-green-700 bg-green-50 border-green-100';
+
       return (
-        <div className={`flex items-center gap-1 text-[10px] md:text-xs font-bold px-2 py-1 rounded border
-          ${badge.color === 'blue' ? 'text-blue-700 bg-blue-50 border-blue-100' : 
-            badge.color === 'orange' ? 'text-orange-700 bg-orange-50 border-orange-100' : 
-            'text-gray-600 bg-gray-100 border-gray-200'}`}>
+        <div className={`flex items-center gap-1 text-[10px] md:text-xs font-bold px-2 py-1 rounded border ${colorClass}`}>
           <Icon size={12} /> <span className="truncate max-w-[80px] md:max-w-[120px]">{badge.name}</span>
         </div>
       );
@@ -270,9 +270,24 @@ const StockStatusSummary = () => {
 
   const clearDates = () => { setStartDate(''); setEndDate(''); };
 
-  // Fişe Gitme Fonksiyonu
-  const handleRowClick = (docNo) => {
-    navigate(`/hareketler/duzenle/${docNo}`);
+  // --- YÖNLENDİRME MANTIĞI (GÜNCELLENDİ) ---
+  const handleRowClick = (row) => {
+    // 1. Hızlı Stok Girişi ise o sayfaya git
+    if (row.transaction_type === 'stock_in') {
+        navigate(`/stok-giris-fisi?docNo=${row.document_no}`);
+    } 
+    // 2. Fatura Girişi ise Satınalma (Fatura) Düzenleme ekranına
+    else if (row.transaction_type === 'purchase') {
+        navigate(`/satinalma/duzenle/${row.document_no}`);
+    } 
+    // 3. Üretim ise Üretim ekranına
+    else if (row.transaction_type === 'production' || row.transaction_type === 'usage') {
+        navigate(`/uretim?docNo=${row.document_no}`);
+    } 
+    // 4. Diğerleri (Transfer vb.)
+    else {
+        navigate(`/hareketler/duzenle/${row.document_no}`);
+    }
   };
 
   return (
@@ -284,7 +299,7 @@ const StockStatusSummary = () => {
         <p className="text-sm text-gray-500 mt-1">Ürün hareket tarihçesi ve detaylı rota takibi.</p>
       </div>
 
-      {/* --- FİLTRE PANELİ (Aynı) --- */}
+      {/* --- FİLTRE PANELİ --- */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6">
         <div className="mb-4">
             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">İncelenecek Ürün</label>
@@ -365,7 +380,7 @@ const StockStatusSummary = () => {
                 {transactions.map((t, idx) => (
                   <tr 
                     key={idx} 
-                    onClick={() => handleRowClick(t.document_no)} // Tıklanınca Fişe Git
+                    onClick={() => handleRowClick(t)} // GÜNCELLENDİ: Tüm satır objesini gönder
                     className="hover:bg-blue-50 cursor-pointer transition-colors group"
                     title="Fiş detayına gitmek için tıklayın"
                   >
@@ -379,7 +394,6 @@ const StockStatusSummary = () => {
                       <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[150px]">{t.description}</div>
                     </td>
                     
-                    {/* YENİ: Akıllı Rota Gösterimi */}
                     <td className="px-6 py-4">
                       <TransactionRoute row={t} />
                     </td>
