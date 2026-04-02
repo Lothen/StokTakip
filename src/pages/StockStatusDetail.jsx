@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Building2, Briefcase, Filter, Box, ChevronDown, Search, X } from 'lucide-react';
+import { Building2, Briefcase, Filter, Box, ChevronDown, Search, X, FileDown } from 'lucide-react'; 
+import * as XLSX from 'xlsx'; 
 
-// --- YENİ: İÇİNDE ARAMA YAPILABİLEN SEÇİM KUTUSU ---
+// --- ARAMALI SEÇİM KUTUSU ---
 const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const wrapperRef = useRef(null);
 
-  // Dışarı tıklandığında kapat
   useEffect(() => {
     function handleClickOutside(event) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
@@ -20,17 +20,14 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [wrapperRef]);
 
-  // Seçili öğeyi bul
   const selectedItem = options.find(opt => opt.id === value);
 
-  // Arama filtresi
   const filteredOptions = options.filter(opt => 
     opt.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
     <div className="relative w-full" ref={wrapperRef}>
-      {/* Görünen Kutu */}
       <div 
         onClick={() => setIsOpen(!isOpen)} 
         className={`w-full p-3 border rounded-lg cursor-pointer flex items-center justify-between bg-white transition-all h-[50px]
@@ -49,11 +46,8 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
         <ChevronDown size={18} className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </div>
 
-      {/* Açılır Liste */}
       {isOpen && (
         <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-2xl z-[99] overflow-hidden">
-          
-          {/* Arama Kutusu */}
           <div className="p-2 border-b bg-gray-50 sticky top-0">
              <div className="relative">
                 <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
@@ -67,8 +61,6 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
                 />
              </div>
           </div>
-
-          {/* Liste Elemanları */}
           <div className="max-h-60 overflow-y-auto">
              {filteredOptions.length === 0 ? (
                <div className="p-4 text-center text-gray-400 text-sm italic">Sonuç bulunamadı.</div>
@@ -101,16 +93,17 @@ const StockStatusDetail = () => {
   const [selectedTargetId, setSelectedTargetId] = useState(''); 
   
   const [stockData, setStockData] = useState([]); 
+  const [stockPrices, setStockPrices] = useState({}); 
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState(''); // Ürün arama
+  const [searchTerm, setSearchTerm] = useState(''); 
 
   useEffect(() => {
     if (user) {
       fetchTargetList(); 
+      fetchStockPrices(); 
     }
   }, [user]);
 
-  // Tab değişince listeyi yenile ve seçimi sıfırla
   useEffect(() => {
     if (user) {
       fetchTargetList();
@@ -119,7 +112,6 @@ const StockStatusDetail = () => {
     }
   }, [activeTab]);
 
-  // Hedef seçilince stokları getir
   useEffect(() => {
     if (selectedTargetId) {
       fetchStockStatus();
@@ -127,6 +119,25 @@ const StockStatusDetail = () => {
       setStockData([]);
     }
   }, [selectedTargetId]);
+
+  const fetchStockPrices = async () => {
+    const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
+    if (!profile) return;
+    
+    const { data } = await supabase
+      .from('stocks')
+      .select('id, buying_price, buying_currency_code')
+      .eq('tenant_id', profile.tenant_id);
+    
+    const priceMap = {};
+    data?.forEach(s => {
+      priceMap[s.id] = { 
+        price: parseFloat(s.buying_price) || 0, 
+        currency: s.buying_currency_code || 'TRY' 
+      };
+    });
+    setStockPrices(priceMap);
+  };
 
   const fetchTargetList = async () => {
     const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
@@ -160,7 +171,6 @@ const StockStatusDetail = () => {
     setLoading(false);
   };
 
-  // Ürün Filtreleme
   const filteredData = stockData.filter(item => {
     const name = item.stock_name || ''; 
     const code = item.stock_code || '';
@@ -168,22 +178,108 @@ const StockStatusDetail = () => {
     return name.toLowerCase().includes(term) || code.toLowerCase().includes(term);
   });
 
+  const costTotals = {};
+  filteredData.forEach(item => {
+    const qty = parseFloat(item.quantity) || 0;
+    if (qty > 0) {
+      const pInfo = stockPrices[item.stock_id] || { price: 0, currency: 'TRY' };
+      const lineCost = qty * pInfo.price;
+      if (lineCost > 0) {
+        costTotals[pInfo.currency] = (costTotals[pInfo.currency] || 0) + lineCost;
+      }
+    }
+  });
+
+  // --- GÜNCELLENEN EXCEL'E AKTARMA FONKSİYONU ---
+  const handleExportExcel = () => {
+    if (filteredData.length === 0) {
+      alert("Dışa aktarılacak veri bulunamadı.");
+      return;
+    }
+
+    const targetName = targetList.find(t => t.id === selectedTargetId)?.name || 'Bilinmeyen Lokasyon';
+
+    // 1. Excel'in en üstüne eklenecek Özet Bilgiler (Lokasyon Adı ve Maliyetler)
+    const headerInfo = [
+      [`${activeTab === 'Depo' ? 'Depo Adı:' : 'Proje Adı:'}`, targetName],
+    ];
+
+    // Döviz kurlarına göre toplam maliyetleri alt alta ekle
+    Object.entries(costTotals).forEach(([currency, total]) => {
+      headerInfo.push([`Toplam Maliyet (${currency}):`, total]);
+    });
+
+    // Özet bilgi ile tablo arasına bir boş satır ekle
+    headerInfo.push([]);
+
+    // 2. Tablo Başlıkları
+    const headers = [
+      'Stok Kodu', 'Ürün Adı', 'Mevcut Miktar', 'Birim', 'Birim Maliyet', 'Toplam Maliyet', 'Para Birimi'
+    ];
+
+    // 3. Tablo İçeriği (Döngü)
+    const exportData = filteredData.map(item => {
+      const qty = parseFloat(item.quantity) || 0;
+      const pInfo = stockPrices[item.stock_id] || { price: 0, currency: 'TRY' };
+      const lineCost = qty > 0 ? qty * pInfo.price : 0;
+
+      return [
+        item.stock_code || '-',
+        item.stock_name || 'Silinmiş Ürün',
+        qty,
+        item.unit || '-',
+        pInfo.price,
+        lineCost,
+        pInfo.currency
+      ];
+    });
+
+    // 4. Hepsini Tek Bir Dizide Birleştir
+    const finalData = [...headerInfo, headers, ...exportData];
+
+    // Excel dosyasını oluştur
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(finalData);
+
+    // Sütun genişlikleri ayarı (A sütununu başlıklar net sığsın diye biraz geniş tuttuk)
+    ws['!cols'] = [{ wch: 22 }, { wch: 40 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 12 }];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Stok_Detay_Listesi");
+    
+    // Dosya adını dinamik olarak seçili lokasyona göre oluştur
+    const safeFileName = targetName.replace(/[^a-z0-9]/gi, '_').toLowerCase(); 
+
+    XLSX.writeFile(wb, `Stok_Analiz_${safeFileName}.xlsx`);
+  };
+
   return (
     <div className="p-6 w-full">
       
-      {/* BAŞLIK */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <Filter size={28} className="text-purple-600" /> Detaylı Stok Analizi
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">Belirli bir depo veya projedeki anlık stok durumunu inceleyin.</p>
+      {/* BAŞLIK VE EXCEL BUTONU */}
+      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <Filter size={28} className="text-purple-600" /> Detaylı Stok Analizi
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">Belirli bir depo veya projedeki anlık stok durumunu ve maliyetleri inceleyin.</p>
+        </div>
+
+        {/* Sadece liste doluysa Excel butonunu göster */}
+        {selectedTargetId && filteredData.length > 0 && (
+          <button 
+            onClick={handleExportExcel}
+            className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition shadow-sm font-medium shrink-0"
+            title="Tabloyu Excel olarak indir"
+          >
+            <FileDown size={20} /> Excel'e Aktar
+          </button>
+        )}
       </div>
 
       {/* --- SEÇİM PANELİ --- */}
       <div className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
           
-          {/* 1. SEÇENEK: DEPO MU PROJE Mİ? */}
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Görüntüleme Modu</label>
             <div className="flex bg-gray-100 p-1 rounded-lg">
@@ -204,13 +300,10 @@ const StockStatusDetail = () => {
             </div>
           </div>
 
-          {/* 2. SEÇENEK: HANGİSİ? (YENİ SEARCHABLE SELECT) */}
           <div className="relative z-50"> 
-             {/* z-50 verdik ki liste açılınca tablonun altında kalmasın */}
             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
               {activeTab === 'Depo' ? 'Hangi Depo?' : 'Hangi Proje?'}
             </label>
-            
             <SearchableSelect 
               options={targetList}
               value={selectedTargetId}
@@ -222,7 +315,6 @@ const StockStatusDetail = () => {
 
         </div>
 
-        {/* 3. ARAMA: ÜRÜN ARA (Seçim yapıldıysa göster) */}
         {selectedTargetId && (
           <div className="mt-4 pt-4 border-t border-gray-100 relative">
              <Search className="absolute left-3 top-7 text-gray-400" size={18} />
@@ -237,7 +329,7 @@ const StockStatusDetail = () => {
         )}
       </div>
 
-      {/* --- ALT PANEL (TABLO) --- */}
+      {/* --- ALT PANEL (ÖZET KARTLARI VE TABLO) --- */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden min-h-[400px] relative z-0">
         
         {/* Durum Mesajları */}
@@ -261,40 +353,72 @@ const StockStatusDetail = () => {
           </div>
         )}
 
-        {/* Veri Tablosu */}
+        {/* Veri Tablosu ve Maliyet Kartları */}
         {selectedTargetId && !loading && filteredData.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Stok Kodu</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Ürün Adı</th>
-                  <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Mevcut Miktar</th>
-                  <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Birim</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredData.map((item, index) => (
-                  <tr key={index} className="hover:bg-blue-50/50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-600">
-                      {item.stock_code || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-800">
-                      {item.stock_name || <span className="text-red-500 italic">Silinmiş Ürün</span>}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className={`inline-block px-4 py-1.5 rounded-full text-sm font-bold shadow-sm
-                        ${item.quantity > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                        {item.quantity}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">
-                      {item.unit || '-'}
-                    </td>
-                  </tr>
+          <div className="p-0">
+            
+            {/* Toplam Maliyet Kartları */}
+            {Object.keys(costTotals).length > 0 && (
+              <div className="flex flex-wrap gap-4 p-4 border-b border-gray-100 bg-gray-50/50">
+                {Object.entries(costTotals).map(([currency, total]) => (
+                  <div key={currency} className="bg-white p-4 rounded-xl border border-green-200 shadow-sm flex-1 min-w-[200px]">
+                    <div className="text-xs font-bold text-green-600 uppercase mb-1">Toplam Maliyet ({currency})</div>
+                    <div className="text-2xl font-black text-green-800">
+                      {total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Stok Kodu</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Ürün Adı</th>
+                    <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Mevcut Miktar</th>
+                    <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Birim</th>
+                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Birim Maliyet</th>
+                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Toplam Maliyet</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredData.map((item, index) => {
+                    const qty = parseFloat(item.quantity) || 0;
+                    const pInfo = stockPrices[item.stock_id] || { price: 0, currency: 'TRY' };
+                    // Eğer miktar eksi ise Toplam Maliyet = 0 yansır.
+                    const lineCost = qty > 0 ? qty * pInfo.price : 0;
+
+                    return (
+                      <tr key={index} className="hover:bg-blue-50/50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-600">
+                          {item.stock_code || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-800">
+                          {item.stock_name || <span className="text-red-500 italic">Silinmiş Ürün</span>}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          <span className={`inline-block px-4 py-1.5 rounded-full text-sm font-bold shadow-sm
+                            ${qty > 0 ? 'bg-green-100 text-green-800' : qty === 0 ? 'bg-gray-100 text-gray-600' : 'bg-red-100 text-red-800'}`}>
+                            {qty}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">
+                          {item.unit || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
+                          {pInfo.price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] font-bold">{pInfo.currency}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-800">
+                          {lineCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px]">{pInfo.currency}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Search, Pencil, Trash2, X, Save, Package, Tag } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, X, Save, Package, Tag, FileUp, Copy, FileDown } from 'lucide-react'; // FileDown eklendi
+import { useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx'; // Excel dışa aktarımı için eklendi
 
 const Stocks = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [tenantId, setTenantId] = useState(null);
 
   const [stocks, setStocks] = useState([]);
-  const [units, setUnits] = useState([]); // Birimleri tutacak state
+  const [units, setUnits] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -17,7 +20,7 @@ const Stocks = () => {
   const [formData, setFormData] = useState({ 
     id: null, 
     stock_code: '', 
-    manufacturer_code: '', // YENİ ALAN: Üretici Kodu
+    manufacturer_code: '', 
     name: '', 
     second_name: '',
     description: '',
@@ -49,7 +52,6 @@ const Stocks = () => {
       console.error('Birimler çekilemedi:', error);
     } else {
       setUnits(data);
-      // Eğer form boşsa ve birimler geldiyse, varsayılan olarak ilkini seç
       if (data.length > 0 && !formData.unit_id) {
         setFormData(prev => ({ ...prev, unit_id: data[0].id }));
       }
@@ -89,7 +91,7 @@ const Stocks = () => {
     setLoading(false);
   };
 
-  // 3. KAYDETME İŞLEMİ (Hata Yakalama Eklenmiş Hali)
+  // 3. KAYDETME İŞLEMİ 
   const handleSave = async (e) => {
     e.preventDefault();
     
@@ -100,7 +102,7 @@ const Stocks = () => {
 
     const stockData = {
       stock_code: formData.stock_code,
-      manufacturer_code: formData.manufacturer_code, // YENİ ALAN EKLENDİ
+      manufacturer_code: formData.manufacturer_code, 
       name: formData.name,
       second_name: formData.second_name,
       description: formData.description,
@@ -116,14 +118,12 @@ const Stocks = () => {
     let error;
 
     if (formData.id) {
-      // Güncelleme
       const { error: updateError } = await supabase
         .from('stocks')
         .update(stockData)
         .eq('id', formData.id);
       error = updateError;
     } else {
-      // Yeni Ekleme
       const { error: insertError } = await supabase
         .from('stocks')
         .insert([stockData]);
@@ -131,7 +131,6 @@ const Stocks = () => {
     }
 
     if (error) {
-      // ÖZEL HATA KONTROLÜ: Aynı Stok Kodu (Unique Constraint)
       if (error.code === '23505') {
         alert(`Bu Stok Kodu (${formData.stock_code}) sistemde zaten kayıtlı! Lütfen farklı bir kod girin.`);
       } else {
@@ -140,7 +139,6 @@ const Stocks = () => {
     } else {
       setIsModalOpen(false);
       getTenantAndFetchStocks();
-      // Başarılı olursa formu sıfırla (varsayılan birimi koruyarak)
       resetForm(units.length > 0 ? units[0].id : '');
     }
   };
@@ -154,22 +152,34 @@ const Stocks = () => {
     }
   };
 
+  // 5. Düzenleme Modalı
   const openEditModal = (stock) => {
     setFormData({
         ...stock,
-        manufacturer_code: stock.manufacturer_code || '' // Null gelirse boş string yap
+        manufacturer_code: stock.manufacturer_code || '' 
+    });
+    setIsModalOpen(true);
+  };
+
+  // 6. Kopyalama İşlemi
+  const openCopyModal = (stock) => {
+    setFormData({
+        ...stock,
+        id: null, 
+        stock_code: stock.stock_code + '-KOPYA', 
+        name: stock.name + ' (Kopya)', 
+        manufacturer_code: stock.manufacturer_code || '' 
     });
     setIsModalOpen(true);
   };
 
   const resetForm = (defaultUnitId = '') => {
-    // Eğer birim ID parametre olarak gelmediyse, mevcut listeden ilkini seçmeye çalış
     const validUnitId = defaultUnitId || (units.length > 0 ? units[0].id : '');
     
     setFormData({ 
       id: null, 
       stock_code: '', 
-      manufacturer_code: '', // Sıfırla
+      manufacturer_code: '', 
       name: '', 
       second_name: '',
       description: '',
@@ -182,33 +192,94 @@ const Stocks = () => {
     });
   };
 
-  // Birim ID'sinden ismini bulan yardımcı fonksiyon
   const getUnitName = (id) => {
     const unit = units.find(u => u.id == id);
     return unit ? unit.name : '...';
+  };
+  
+  const getUnitCode = (id) => {
+    const unit = units.find(u => u.id == id);
+    return unit ? unit.code : '';
   };
 
   const filteredStocks = stocks.filter(s => 
     s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     s.stock_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.manufacturer_code?.toLowerCase().includes(searchTerm.toLowerCase()) // Üretici kodunda da arama yap
+    s.manufacturer_code?.toLowerCase().includes(searchTerm.toLowerCase()) 
   );
+
+  // YENİ: Excel'e Dışa Aktarma Fonksiyonu
+  const handleExportExcel = () => {
+    if (stocks.length === 0) {
+      alert("Dışa aktarılacak stok bulunamadı.");
+      return;
+    }
+
+    // İçe aktarma şablonuyla aynı başlıkları kullanıyoruz
+    const headers = [
+      'Stok Kodu*', 'Üretici Kodu', 'Stok Adı*', 'İkinci İsim', 'Açıklama', 
+      'Birim Kodu*', 'Alış Fiyatı', 'Alış Dövizi', 'Satış Fiyatı', 'Satış Dövizi', 'KDV Oranı (%)'
+    ];
+
+    // Verileri formatlama
+    const exportData = stocks.map(stock => [
+      stock.stock_code,
+      stock.manufacturer_code || '',
+      stock.name,
+      stock.second_name || '',
+      stock.description || '',
+      getUnitCode(stock.unit_id), // İsmini değil Kodunu (ADET, KG vs) alıyoruz
+      stock.buying_price || 0,
+      stock.buying_currency_code || 'TRY',
+      stock.selling_price || 0,
+      stock.selling_currency_code || 'TRY',
+      stock.vat_rate || 20
+    ]);
+
+    // Başlıkları ve verileri birleştir
+    const finalData = [headers, ...exportData];
+
+    // Workbook ve Worksheet oluştur
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(finalData);
+
+    // Sayfayı kitaba ekle ve indir
+    XLSX.utils.book_append_sheet(wb, ws, "Stok_Listesi");
+    XLSX.writeFile(wb, "GemStok_Tum_Stoklar.xlsx");
+  };
 
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
             <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                <Package className="text-blue-600" /> Stok Listesi
+                <Package className="text-blue-600" /> Stok Kartlari
             </h1>
             <p className="text-gray-500 text-sm mt-1">Ürün ve hizmet yönetimi</p>
         </div>
-        <button 
-          onClick={() => { resetForm(); setIsModalOpen(true); }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-sm"
-        >
-          <Plus size={20} /> Yeni Stok Ekle
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+            {/* EXCEL'E AKTAR BUTONU */}
+            <button 
+              onClick={handleExportExcel}
+              className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-sm font-medium"
+              title="Tüm listeyi Excel olarak indir"
+            >
+              <FileDown size={20} /> Excel'e Aktar
+            </button>
+            
+            <button 
+              onClick={() => navigate('/stoklar/toplu-ekle')}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-sm font-medium"
+            >
+              <FileUp size={20} /> Çoklu Stok Kartı Ekle
+            </button>
+            <button 
+              onClick={() => { resetForm(); setIsModalOpen(true); }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-sm font-medium"
+            >
+              <Plus size={20} /> Yeni Stok Kartı Ekle
+            </button>
+        </div>
       </div>
 
       <div className="mb-6 relative">
@@ -244,7 +315,6 @@ const Stocks = () => {
                 <tr key={stock.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="font-bold text-gray-900">{stock.stock_code}</div>
-                    {/* Üretici Kodu Gösterimi */}
                     {stock.manufacturer_code && (
                         <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                             <Tag size={10} /> Üretici: {stock.manufacturer_code}
@@ -269,8 +339,9 @@ const Stocks = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end gap-2">
-                        <button onClick={() => openEditModal(stock)} className="text-blue-600 hover:bg-blue-50 p-2 rounded"><Pencil size={18} /></button>
-                        <button onClick={() => handleDelete(stock.id)} className="text-red-600 hover:bg-red-50 p-2 rounded"><Trash2 size={18} /></button>
+                        <button onClick={() => openCopyModal(stock)} className="text-green-600 hover:bg-green-50 p-2 rounded" title="Bu Kartı Kopyala"><Copy size={18} /></button>
+                        <button onClick={() => openEditModal(stock)} className="text-blue-600 hover:bg-blue-50 p-2 rounded" title="Düzenle"><Pencil size={18} /></button>
+                        <button onClick={() => handleDelete(stock.id)} className="text-red-600 hover:bg-red-50 p-2 rounded" title="Sil"><Trash2 size={18} /></button>
                     </div>
                   </td>
                 </tr>
@@ -284,13 +355,12 @@ const Stocks = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center p-5 border-b bg-gray-50">
-              <h2 className="text-lg font-bold text-gray-800">{formData.id ? 'Stok Düzenle' : 'Yeni Stok Ekle'}</h2>
+              <h2 className="text-lg font-bold text-gray-800">{formData.id ? 'Stok Kartı Düzenle' : 'Yeni Stok Kartı Ekle'}</h2>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
             </div>
             
             <form onSubmit={handleSave} className="p-6 space-y-4">
               
-              {/* Stok Kodu, Üretici Kodu ve Birim Alanı */}
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Stok Kodu *</label>
@@ -302,7 +372,6 @@ const Stocks = () => {
                   />
                 </div>
                 <div>
-                  {/* YENİ: Üretici Kodu Input */}
                   <label className="block text-sm font-medium text-gray-700 mb-1">Üretici Kodu</label>
                   <input 
                     type="text"

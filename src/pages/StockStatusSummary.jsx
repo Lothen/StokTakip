@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Search, Building2, Briefcase, ChevronDown, Calendar, ArrowRight, Filter, X, ExternalLink, RefreshCw } from 'lucide-react';
+import { FileText, Search, Building2, Briefcase, ChevronDown, Calendar, ArrowRight, Filter, X, ExternalLink, RefreshCw, FileDown } from 'lucide-react'; // FileDown eklendi
+import * as XLSX from 'xlsx'; // Excel kütüphanesi eklendi
 
 // --- ARAMALI SEÇİM BİLEŞENİ (Değişmedi) ---
 const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon }) => {
@@ -201,7 +202,115 @@ const StockStatusSummary = () => {
     setTotals({ in: totalIn, out: totalOut, balance: totalIn - totalOut });
   };
 
-  // --- NEREDEN -> NEREYE MANTIĞI (GÜNCELLENDİ) ---
+  const getLocNameForExcel = (id, type) => {
+    if (!id) return null;
+    if (type === 'warehouse') return warehouseMap[id] || 'Silinmiş Depo';
+    if (type === 'project') return projectMap[id] || 'Silinmiş Proje';
+    return 'Dış Kaynak';
+  };
+
+  // YENİ: EXCEL'E AKTARMA FONKSİYONU
+  const handleExportExcel = () => {
+    if (transactions.length === 0) {
+      alert("Dışa aktarılacak hareket bulunamadı.");
+      return;
+    }
+
+    // 1. Özet / Filtre Bilgilerini Hazırla
+    const selectedStock = stockList.find(s => s.id === selectedStockId);
+    const stockNameText = selectedStock ? `${selectedStock.code} - ${selectedStock.name}` : 'Bilinmeyen Ürün';
+    
+    let locationText = 'Tüm Şirket';
+    if (locationType !== 'all' && selectedLocationId) {
+        const loc = locationList.find(l => l.id === selectedLocationId);
+        locationText = loc ? `${locationType}: ${loc.name}` : 'Bilinmeyen Konum';
+    }
+
+    const dateText = (startDate || endDate) ? `${startDate || 'Başlangıç'} - ${endDate || 'Bugün'}` : 'Tüm Zamanlar';
+
+    // 2. Excel Başlık Kısmı
+    const headerInfo = [
+      ['STOK HAREKET EKSTRESİ'],
+      [''],
+      ['İncelenen Ürün:', stockNameText],
+      ['Filtre (Konum):', locationText],
+      ['Tarih Aralığı:', dateText],
+      [''],
+      ['--- ÖZET DURUM ---'],
+      ['Toplam Giriş:', totals.in],
+      ['Toplam Çıkış:', totals.out],
+      ['Mevcut Bakiye:', totals.balance],
+      [''],
+      ['HAREKET DETAYLARI']
+    ];
+
+    // 3. Tablo Sütun Başlıkları
+    const tableHeaders = [
+      'Tarih', 'Fiş No', 'Açıklama', 'Hareket Tipi', 'Kaynak (Nereden)', 'Hedef (Nereye)', 'Miktar'
+    ];
+
+    // 4. Tablo Satırları (Rotayı Text'e çevirme)
+    const exportData = transactions.map(t => {
+        let fromName = 'Dış Kaynak';
+        let toName = 'Dış Kaynak';
+
+        if (t.direction === -1) {
+            fromName = t.warehouse_id ? getLocNameForExcel(t.warehouse_id, 'warehouse') : (t.project_id ? getLocNameForExcel(t.project_id, 'project') : 'Dış Kaynak');
+            toName = t.related_warehouse_id ? getLocNameForExcel(t.related_warehouse_id, 'warehouse') : (t.transaction_type === 'production_out' ? getLocNameForExcel(t.project_id, 'project') : 'Dış/Tüketim');
+        } else {
+            toName = t.warehouse_id ? getLocNameForExcel(t.warehouse_id, 'warehouse') : (t.project_id ? getLocNameForExcel(t.project_id, 'project') : 'Dış Kaynak');
+            
+            if (t.related_warehouse_id) fromName = getLocNameForExcel(t.related_warehouse_id, 'warehouse');
+            else if (t.transaction_type === 'production_return') fromName = getLocNameForExcel(t.project_id, 'project');
+            else if (t.transaction_type === 'stock_in') fromName = 'Hızlı Giriş / Devir';
+            else if (t.transaction_type === 'purchase') fromName = 'Tedarikçi (Satınalma)';
+            else fromName = 'Dış Kaynak';
+        }
+
+        // Tipi Türkçeleştirme (Opsiyonel daha şık görünüm için)
+        let trType = t.transaction_type;
+        if(trType === 'purchase') trType = 'Fatura/İrsaliye Girişi';
+        else if(trType === 'stock_in') trType = 'Hızlı Stok Girişi';
+        else if(trType === 'production_out') trType = 'Projeye Sevk';
+        else if(trType === 'production_return') trType = 'Projeden İade';
+        else if(trType === 'production' || trType === 'usage') trType = 'Üretim';
+        else if(trType.includes('transfer')) trType = 'Transfer';
+
+        return [
+            t.document_date,
+            t.document_no,
+            t.description || '',
+            trType,
+            fromName,
+            toName,
+            (t.direction === 1 ? '+' : '') + t.quantity
+        ];
+    });
+
+    // 5. Birleştir ve Kaydet
+    const finalData = [...headerInfo, tableHeaders, ...exportData];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(finalData);
+
+    // Sütun genişliklerini ayarla
+    ws['!cols'] = [
+        { wch: 12 }, // Tarih
+        { wch: 20 }, // Fiş No
+        { wch: 30 }, // Açıklama
+        { wch: 20 }, // Hareket Tipi
+        { wch: 25 }, // Kaynak
+        { wch: 25 }, // Hedef
+        { wch: 12 }, // Miktar
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Stok_Ekstresi");
+    
+    // Dosya adını ürün koduna göre dinamik yap
+    const safeFileName = selectedStock?.code ? selectedStock.code.replace(/[^a-z0-9]/gi, '_') : 'Urun';
+    XLSX.writeFile(wb, `Stok_Ekstre_${safeFileName}.xlsx`);
+  };
+
+  // --- NEREDEN -> NEREYE MANTIĞI (Görsel Badge) ---
   const TransactionRoute = ({ row }) => {
     const getBadge = (id, type) => {
       if (!id) return null;
@@ -214,7 +323,6 @@ const StockStatusSummary = () => {
     let toBadge = null;
 
     if (row.direction === -1) {
-      // --- ÇIKIŞ İŞLEMİ ---
       if (row.warehouse_id) fromBadge = getBadge(row.warehouse_id, 'warehouse');
       else if (row.project_id) fromBadge = getBadge(row.project_id, 'project');
 
@@ -223,20 +331,16 @@ const StockStatusSummary = () => {
       else toBadge = { name: 'Dış/Tüketim', color: 'gray', icon: ExternalLink };
 
     } else {
-      // --- GİRİŞ İŞLEMİ ---
       if (row.warehouse_id) toBadge = getBadge(row.warehouse_id, 'warehouse');
       else if (row.project_id) toBadge = getBadge(row.project_id, 'project');
 
-      // Kaynak Belirleme (GÜNCELLENEN KISIM)
       if (row.related_warehouse_id) {
           fromBadge = getBadge(row.related_warehouse_id, 'warehouse');
       } else if (row.transaction_type === 'production_return') {
           fromBadge = getBadge(row.project_id, 'project');
       } else if (row.transaction_type === 'stock_in') {
-          // Stok Giriş Fişi (Sayım/Devir)
           fromBadge = { name: 'Hızlı Giriş / Devir', color: 'purple', icon: RefreshCw };
       } else if (row.transaction_type === 'purchase') {
-          // Satınalma Faturası
           fromBadge = { name: 'Tedarikçi (Satınalma)', color: 'green', icon: ExternalLink };
       } else {
           fromBadge = { name: 'Dış Kaynak', color: 'gray', icon: ExternalLink };
@@ -270,33 +374,34 @@ const StockStatusSummary = () => {
 
   const clearDates = () => { setStartDate(''); setEndDate(''); };
 
-  // --- YÖNLENDİRME MANTIĞI (GÜNCELLENDİ) ---
   const handleRowClick = (row) => {
-    // 1. Hızlı Stok Girişi ise o sayfaya git
-    if (row.transaction_type === 'stock_in') {
-        navigate(`/stok-giris-fisi?docNo=${row.document_no}`);
-    } 
-    // 2. Fatura Girişi ise Satınalma (Fatura) Düzenleme ekranına
-    else if (row.transaction_type === 'purchase') {
-        navigate(`/satinalma/duzenle/${row.document_no}`);
-    } 
-    // 3. Üretim ise Üretim ekranına
-    else if (row.transaction_type === 'production' || row.transaction_type === 'usage') {
-        navigate(`/uretim?docNo=${row.document_no}`);
-    } 
-    // 4. Diğerleri (Transfer vb.)
-    else {
-        navigate(`/hareketler/duzenle/${row.document_no}`);
-    }
+    if (row.transaction_type === 'stock_in') navigate(`/stok-giris-fisi?docNo=${row.document_no}`);
+    else if (row.transaction_type === 'purchase') navigate(`/satinalma/duzenle/${row.document_no}`);
+    else if (row.transaction_type === 'production' || row.transaction_type === 'usage') navigate(`/uretim?docNo=${row.document_no}`);
+    else navigate(`/hareketler/duzenle/${row.document_no}`);
   };
 
   return (
     <div className="p-6 w-full">
-      <div className="mb-6 border-b pb-4">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <FileText size={28} className="text-blue-600" /> Stok Ekstresi
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">Ürün hareket tarihçesi ve detaylı rota takibi.</p>
+      {/* BAŞLIK VE EXCEL BUTONU ALANI GÜNCELLENDİ */}
+      <div className="mb-6 border-b pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <FileText size={28} className="text-blue-600" /> Stok Ekstresi
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">Ürün hareket tarihçesi ve detaylı rota takibi.</p>
+        </div>
+        
+        {/* Veri varsa Excel Butonunu Göster */}
+        {selectedStockId && transactions.length > 0 && (
+          <button 
+            onClick={handleExportExcel}
+            className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition shadow-sm font-medium shrink-0"
+            title="Ekstreyi Excel olarak indir"
+          >
+            <FileDown size={20} /> Excel'e Aktar
+          </button>
+        )}
       </div>
 
       {/* --- FİLTRE PANELİ --- */}
@@ -380,7 +485,7 @@ const StockStatusSummary = () => {
                 {transactions.map((t, idx) => (
                   <tr 
                     key={idx} 
-                    onClick={() => handleRowClick(t)} // GÜNCELLENDİ: Tüm satır objesini gönder
+                    onClick={() => handleRowClick(t)}
                     className="hover:bg-blue-50 cursor-pointer transition-colors group"
                     title="Fiş detayına gitmek için tıklayın"
                   >

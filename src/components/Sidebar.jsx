@@ -55,7 +55,7 @@ const Sidebar = () => {
       isSubMenu: true,
       id: 'reports',
       children: [
-        { path: '/stok-durumu/ozet', name: 'Genel Özet', icon: <List size={16} /> },
+        { path: '/stok-durumu/ozet', name: 'Stok Ekstresi', icon: <List size={16} /> },
         { path: '/stok-durumu/detay', name: 'Detaylı Analiz', icon: <Filter size={16} /> }
       ]
     },
@@ -63,7 +63,7 @@ const Sidebar = () => {
     { path: '/musteriler', name: 'Cari Listesi', icon: <Building2 size={20} /> },
     { path: '/projeler', name: 'Projeler', icon: <FolderKanban size={20} /> },
     { path: '/proje-agaci', name: 'Proje Ağacı', icon: <Network size={20} /> },
-    { path: '/stoklar', name: 'Stok Listesi', icon: <Package size={20} /> },
+    { path: '/stoklar', name: 'Stok Kartları', icon: <Package size={20} /> },
     { path: '/depolar', name: 'Depolar', icon: <Warehouse size={20} /> },
     
     // 👇 GÜNCELLEME BURADA: Path kaldırıldı 👇

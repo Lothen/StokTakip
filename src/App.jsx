@@ -17,8 +17,10 @@ import StockStatusDetail from './pages/StockStatusDetail';
 // --- SATINALMA IMPORTLARI ---
 import PurchaseInvoice from './pages/PurchaseInvoice';
 import PurchaseInvoiceList from './pages/PurchaseInvoiceList'; 
-// --- STOK GİRİŞ FİŞİ (YENİ EKLENDİ) ---
+// --- STOK GİRİŞ FİŞİ ---
 import StockEntry from './pages/StockEntry';
+// --- TOPLU STOK EKLEME (YENİ EKLENDİ) ---
+import BulkStockEntry from './pages/BulkStockEntry';
 
 import Login from './pages/Login';
 
@@ -70,7 +72,7 @@ function App() {
             </ProtectedRoute>
           } />
           
-          {/* --- STOK GİRİŞ FİŞİ (DEVİR) - YENİ --- */}
+          {/* --- STOK GİRİŞ FİŞİ (DEVİR) --- */}
           <Route path="/stok-giris-fisi" element={
             <ProtectedRoute>
               <StockEntry />
@@ -130,9 +132,17 @@ function App() {
             </ProtectedRoute>
           } />
 
+          {/* --- STOK KARTLARI --- */}
           <Route path="/stoklar" element={
             <ProtectedRoute>
               <Stocks />
+            </ProtectedRoute>
+          } />
+
+          {/* 👇 BU ROTAYI EKLEDİK: Toplu Stok Yükleme 👇 */}
+          <Route path="/stoklar/toplu-ekle" element={
+            <ProtectedRoute>
+              <BulkStockEntry />
             </ProtectedRoute>
           } />
 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Save, Plus, Trash2, Package, Building2, Search, ChevronDown, Calendar, ArrowLeft } from 'lucide-react';
+import { Save, Plus, Trash2, Package, Building2, Search, ChevronDown, Calendar, ArrowLeft, FileUp, FileDown } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import * as XLSX from 'xlsx'; // Excel işlemleri için eklendi
 
 // --- ARAMALI SEÇİM KUTUSU (Değişmedi) ---
 const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon }) => {
@@ -89,20 +90,17 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
 const StockEntry = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams(); // URL parametrelerini oku
+  const [searchParams] = useSearchParams(); 
   
-  // URL'den docNo parametresini al
   const docNoParam = searchParams.get('docNo');
   const isEditMode = !!docNoParam;
 
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
 
-  // Veri Listeleri
   const [warehouses, setWarehouses] = useState([]);
   const [stockList, setStockList] = useState([]);
 
-  // Form Başlığı
   const [header, setHeader] = useState({
     warehouse_id: '',
     document_no: `GIRIS-${new Date().getFullYear()}${Math.floor(Math.random() * 1000)}`,
@@ -110,12 +108,10 @@ const StockEntry = () => {
     description: 'Açılış / Devir Sayımı'
   });
 
-  // Satırlar
   const [items, setItems] = useState([
     { stock_id: '', quantity: 1, price: 0 }
   ]);
 
-  // Sayfa Yüklendiğinde
   useEffect(() => {
     if (user) {
         initializePage();
@@ -126,7 +122,6 @@ const StockEntry = () => {
       setDataLoading(true);
       await fetchDependencies();
       
-      // Eğer düzenleme modundaysak verileri çek
       if (isEditMode) {
           await fetchEntryDetails(docNoParam);
       }
@@ -138,14 +133,11 @@ const StockEntry = () => {
     if (!profile) return;
     const tenantId = profile.tenant_id;
 
-    // Depoları Çek
     const { data: wh } = await supabase.from('warehouses').select('id, name').eq('tenant_id', tenantId);
     setWarehouses(wh || []);
 
-    // Stokları Çek
     const { data: stocks } = await supabase.from('stocks').select('id, name, stock_code, units(name)').eq('tenant_id', tenantId);
     
-    // Stokları formatla
     const formattedStocks = stocks?.map(s => ({
         id: s.id,
         name: s.name,
@@ -155,9 +147,7 @@ const StockEntry = () => {
     setStockList(formattedStocks);
   };
 
-  // MEVCUT VERİLERİ ÇEKME (DÜZENLEME İÇİN)
   const fetchEntryDetails = async (docNo) => {
-      // Belge Numarasına göre hareketleri çek
       const { data: transactions, error } = await supabase
           .from('stock_transactions')
           .select('*')
@@ -168,7 +158,6 @@ const StockEntry = () => {
           return;
       }
 
-      // İlk kayıttan başlık bilgilerini al
       const firstRecord = transactions[0];
       setHeader({
           warehouse_id: firstRecord.warehouse_id,
@@ -177,11 +166,8 @@ const StockEntry = () => {
           description: firstRecord.description || ''
       });
 
-      // Satırları oluştur
       const formattedItems = transactions.map(t => ({
           stock_id: t.stock_id,
-          // Veritabanında (Miktar * Yön) ayrıdır. Input için bunları tekrar birleştiriyoruz (+/-)
-          // Örn: DB'de miktar=5, yön=-1 ise inputta -5 göstermeliyiz.
           quantity: t.quantity * t.direction, 
           price: t.price
       }));
@@ -206,6 +192,89 @@ const StockEntry = () => {
     setItems(newItems);
   };
 
+  // --- EXCEL ŞABLON İNDİRME ---
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      ['Stok Kodu*', 'Miktar*', 'Birim Maliyet'],
+      ['STK-001', 50, 15.5],
+      ['STK-002', -10, 0] // Düzeltme işlemi için negatif örnek
+    ];
+    
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(templateData);
+    
+    // Sütun genişliklerini ayarla
+    ws['!cols'] = [{ wch: 15 }, { wch: 10 }, { wch: 15 }];
+    
+    XLSX.utils.book_append_sheet(wb, ws, "Stok_Giris_Sablonu");
+    XLSX.writeFile(wb, "Hizli_Stok_Giris_Sablonu.xlsx");
+  };
+
+  // --- EXCEL'DEN YÜKLEME ---
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        const newItems = [];
+        const notFoundCodes = [];
+
+        data.forEach(row => {
+          const stockCode = row['Stok Kodu*'];
+          const qty = parseFloat(row['Miktar*']);
+          const price = parseFloat(row['Birim Maliyet']) || 0;
+
+          if (stockCode && !isNaN(qty)) {
+            // Excel'deki stok kodunu sistemdeki stok id'si ile eşleştiriyoruz
+            const matchedStock = stockList.find(s => String(s.stock_code).toLowerCase() === String(stockCode).toLowerCase());
+            
+            if (matchedStock) {
+              newItems.push({
+                stock_id: matchedStock.id,
+                quantity: qty,
+                price: price
+              });
+            } else {
+              notFoundCodes.push(stockCode);
+            }
+          }
+        });
+
+        if (newItems.length > 0) {
+          // Eğer şu anki liste sadece 1 tane ve boş satırsa, onu silip direkt yenilerini koy
+          if (items.length === 1 && !items[0].stock_id) {
+            setItems(newItems);
+          } else {
+            // Değilse mevcutların altına ekle
+            setItems(prev => [...prev, ...newItems]);
+          }
+          
+          if (notFoundCodes.length > 0) {
+            alert(`${newItems.length} kalem başarıyla eklendi.\n\nAncak şu Stok Kodları sistemde bulunamadı ve atlandı:\n${notFoundCodes.join(', ')}`);
+          } else {
+            alert(`${newItems.length} kalem başarıyla eklendi.`);
+          }
+        } else {
+          alert("Geçerli bir veri bulunamadı. Lütfen Stok Kodlarının ve Miktarların doğru girildiğinden emin olun.");
+        }
+      } catch (err) {
+        alert("Excel okunurken bir hata oluştu: " + err.message);
+      }
+      
+      // Aynı dosyayı tekrar seçebilmek için input'u temizle
+      e.target.value = null;
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const handleSave = async () => {
     if (!header.warehouse_id) return alert("Lütfen Depo seçiniz.");
     
@@ -218,21 +287,19 @@ const StockEntry = () => {
         const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
         const tenantId = profile.tenant_id;
 
-        // DÜZENLEME MODU İSE: Önce eski kayıtları sil
         if (isEditMode) {
             const { error: deleteError } = await supabase
                 .from('stock_transactions')
                 .delete()
-                .eq('document_no', docNoParam); // URL'den gelen orijinal belge no ile sil
+                .eq('document_no', docNoParam); 
             
             if (deleteError) throw deleteError;
         }
 
-        // YENİ KAYITLARI OLUŞTUR (INSERT)
         const transactions = items.map(item => {
             const qty = parseFloat(item.quantity);
-            const finalQuantity = Math.abs(qty); // Mutlak değer (Pozitif)
-            const finalDirection = qty >= 0 ? 1 : -1; // Yön (-1 veya 1)
+            const finalQuantity = Math.abs(qty); 
+            const finalDirection = qty >= 0 ? 1 : -1; 
 
             return {
                 tenant_id: tenantId,
@@ -255,7 +322,6 @@ const StockEntry = () => {
 
         alert(isEditMode ? "Güncelleme başarılı!" : "Giriş başarılı!");
         
-        // İşlem bitince listeye dön veya formu temizle
         if (isEditMode) {
             navigate('/hareketler/liste');
         } else {
@@ -276,7 +342,7 @@ const StockEntry = () => {
   }
 
   return (
-    <div className="p-6 w-full mx-auto">
+    <div className="w-full p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
           <div className="flex items-center gap-2">
@@ -337,7 +403,7 @@ const StockEntry = () => {
                         value={header.document_no}
                         onChange={(e) => setHeader({...header, document_no: e.target.value})}
                         placeholder="Belge No"
-                        disabled={isEditMode} // Düzenleme modunda Belge No değişmesin
+                        disabled={isEditMode} 
                     />
                      <input 
                         type="text" 
@@ -410,13 +476,34 @@ const StockEntry = () => {
                 })}
             </tbody>
         </table>
-        <div className="p-3 bg-gray-50 border-t border-gray-200">
-            <button onClick={handleAddItem} className="flex items-center gap-1 text-sm font-bold text-green-600 hover:text-green-800">
+        
+        {/* --- YENİ EKLENEN EXCEL BUTONLARI --- */}
+        <div className="p-3 bg-gray-50 border-t border-gray-200 flex justify-between items-center flex-wrap gap-3">
+            <button onClick={handleAddItem} className="flex items-center gap-1 text-sm font-bold text-green-600 hover:text-green-800 px-2 py-1 transition-colors">
                 <Plus size={18} /> Yeni Satır Ekle
             </button>
-        </div>
-      </div>
 
+            <div className="flex items-center gap-4">
+                <button onClick={handleDownloadTemplate} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-800 px-2 py-1 transition-colors">
+                    <FileDown size={18} /> Şablon İndir
+                </button>
+                
+                <div className="relative">
+                    <input 
+                        type="file" 
+                        accept=".xlsx, .xls"
+                        onChange={handleFileUpload}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                        title="Excel'den Yükle"
+                    />
+                    <button className="flex items-center gap-1 text-sm font-bold text-purple-600 hover:text-purple-800 px-2 py-1 transition-colors bg-purple-50 rounded-lg">
+                        <FileUp size={18} /> Excel'den Yükle
+                    </button>
+                </div>
+            </div>
+        </div>
+
+      </div>
     </div>
   );
 };
