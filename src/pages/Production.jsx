@@ -3,15 +3,17 @@ import { supabase } from '../supabase';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Button, Card, Table, Form, Select, InputNumber, Input, message, Divider, Space, Tooltip, Spin } from 'antd';
 import { PlusOutlined, SaveOutlined, DeleteOutlined, RobotOutlined, FileTextOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { useAuth } from '../context/AuthContext';
 
 const Production = () => {
-    const [searchParams] = useSearchParams(); // URL parametrelerini oku
+    const { user } = useAuth(); // YENİ EKLENDİ: Mevcut kullanıcı bilgisini alıyoruz
+    const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const editDocNo = searchParams.get('docNo'); // Düzenlenecek Fiş No
+    const editDocNo = searchParams.get('docNo'); 
 
     const [stocks, setStocks] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [pageLoading, setPageLoading] = useState(false); // Sayfa verisi yükleniyor mu?
+    const [pageLoading, setPageLoading] = useState(false); 
     
     // Form Durumları
     const [targetProduct, setTargetProduct] = useState(null);
@@ -21,7 +23,7 @@ const Production = () => {
     const [documentNo, setDocumentNo] = useState(''); 
     const [warehouses, setWarehouses] = useState([]);
     const [selectedWarehouse, setSelectedWarehouse] = useState(null);
-    const [isEditMode, setIsEditMode] = useState(false); // Düzenleme modu mu?
+    const [isEditMode, setIsEditMode] = useState(false); 
 
     // Otomatik Fiş No Üretici
     const generateDocumentNo = () => {
@@ -36,6 +38,8 @@ const Production = () => {
     // 1. Verileri ve (Varsa) Düzenlenecek Kaydı Yükle
     useEffect(() => {
         const init = async () => {
+            if (!user) return; // Kullanıcı yüklenmediyse bekle
+            
             setPageLoading(true);
             await fetchInitialData();
             
@@ -49,27 +53,35 @@ const Production = () => {
             setPageLoading(false);
         };
         init();
-    }, [editDocNo]);
+    }, [editDocNo, user]);
 
     const fetchInitialData = async () => {
-        const { data: stockData } = await supabase.from('stocks').select('id, name, stock_code, unit_id');
-        const { data: warehouseData } = await supabase.from('warehouses').select('id, name');
+        // YENİ EKLENDİ: Kullanıcının profilinden tenant_id bilgisini alıyoruz
+        const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
+        if (!profile) return;
+        const tenantId = profile.tenant_id;
+
+        // YENİ EKLENDİ: Stokları ve depoları çekerken sadece bu tenant_id'ye ait olanları (eq('tenant_id', tenantId)) getiriyoruz
+        const { data: stockData } = await supabase.from('stocks').select('id, name, stock_code, unit_id').eq('tenant_id', tenantId);
+        const { data: warehouseData } = await supabase.from('warehouses').select('id, name').eq('tenant_id', tenantId);
         
         if (stockData) setStocks(stockData);
         if (warehouseData) {
             setWarehouses(warehouseData);
-            // Sadece yeni kayıtta varsayılan seç, edit modunda veritabanından geleni bekleyeceğiz
             if (!editDocNo && warehouseData.length > 0) setSelectedWarehouse(warehouseData[0].id);
         }
     };
 
-    // DÜZENLEME İÇİN VERİ ÇEKME FONKSİYONU
     const fetchTransactionDetails = async (docNo) => {
-        // Bu fiş numarasına ait tüm hareketleri çek
+        // Güvenlik için tenant_id bilgisini burada da kullanıyoruz
+        const { data: profile } = await supabase.from('profiles').select('tenant_id').eq('id', user.id).single();
+        if (!profile) return;
+
         const { data, error } = await supabase
             .from('stock_transactions')
             .select('*')
-            .eq('document_no', docNo);
+            .eq('document_no', docNo)
+            .eq('tenant_id', profile.tenant_id); // YENİ EKLENDİ: Tenant filtresi
 
         if (error || !data || data.length === 0) {
             message.error('Kayıt bulunamadı!');
@@ -124,14 +136,12 @@ const Production = () => {
 
         setLoading(true);
         try {
-            // --- GÜNCELLEME MANTIĞI ---
             // Eğer Düzenleme Modundaysak: Önce eski kayıtları sil, sonra yenisini ekle.
-            // Bu yöntem en temizidir çünkü kullanıcı malzeme sayısını değiştirmiş olabilir.
             if (isEditMode) {
                 const { error: deleteError } = await supabase
                     .from('stock_transactions')
                     .delete()
-                    .eq('document_no', documentNo); // Mevcut belge no ile sil
+                    .eq('document_no', documentNo);
                 
                 if (deleteError) throw deleteError;
             }
@@ -197,7 +207,6 @@ const Production = () => {
                                 <Input 
                                     prefix={<FileTextOutlined />} 
                                     value={documentNo} 
-                                    // Edit modunda belge no değiştirilemesin (karışıklığı önlemek için)
                                     disabled={isEditMode}
                                     onChange={(e) => setDocumentNo(e.target.value)} 
                                     placeholder="Otomatik..."

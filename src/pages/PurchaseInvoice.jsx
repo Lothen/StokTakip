@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Save, Plus, Trash2, FileText, Building2, User, Search, ChevronDown, Coins, RefreshCw, ArrowLeft } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom'; // useParams eklendi
+import { Save, Plus, Trash2, FileText, Building2, User, Search, ChevronDown, Coins, RefreshCw, ArrowLeft, UploadCloud, AlertCircle } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 
-// --- ARAMALI SEÇİM KUTUSU (Değişmedi) ---
-const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon }) => {
+// --- GÜNCELLENEN: ARAMALI SEÇİM KUTUSU ---
+const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon, hasWarning }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const wrapperRef = useRef(null);
@@ -22,26 +22,33 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
 
   const selectedItem = options.find(opt => opt.id === value);
   const filteredOptions = options.filter(opt => 
-    opt.name.toLowerCase().includes(searchTerm.toLowerCase())
+    opt.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (opt.stock_code && opt.stock_code.toLowerCase().includes(searchTerm.toLowerCase())) // Stok kodunda da arama yap
   );
+
+  // Uyarı veya Aktif duruma göre çerçeve rengi
+  let borderClass = 'border-gray-300 hover:border-gray-400';
+  if (isOpen) borderClass = 'border-blue-500 ring-2 ring-blue-100';
+  else if (hasWarning) borderClass = 'border-orange-400 ring-1 ring-orange-200';
 
   return (
     <div className="relative w-full" ref={wrapperRef}>
       <div 
         onClick={() => setIsOpen(!isOpen)} 
-        className={`w-full p-3 border rounded-lg cursor-pointer flex items-center justify-between bg-white transition-all h-[50px]
-        ${isOpen ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-300 hover:border-gray-400'}`}
+        className={`w-full p-2.5 border rounded-lg cursor-pointer flex items-center justify-between bg-white transition-all min-h-[42px] ${borderClass}`}
       >
         <div className="flex items-center gap-2 overflow-hidden text-gray-700 w-full">
            {selectedItem ? (
              <>
                {Icon && <Icon size={18} className="text-blue-600 shrink-0"/>}
-               <span className="font-bold truncate">{selectedItem.name}</span>
+               <span className="font-bold truncate text-sm">
+                 {selectedItem.stock_code ? `${selectedItem.stock_code} - ` : ''}{selectedItem.name}
+               </span>
              </>
            ) : (
              <>
                {Icon && <Icon size={18} className="text-gray-400 shrink-0"/>}
-               <span className="text-gray-400">{placeholder}</span>
+               <span className="text-gray-400 text-sm">{placeholder}</span>
              </>
            )}
         </div>
@@ -49,7 +56,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
       </div>
 
       {isOpen && (
-        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-2xl z-[99] overflow-hidden">
+        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-2xl z-[999] overflow-hidden">
           <div className="p-2 border-b bg-gray-50 sticky top-0">
              <div className="relative">
                 <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
@@ -74,8 +81,11 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
                    className={`p-3 text-sm cursor-pointer border-b last:border-0 border-gray-100 transition-colors flex items-center gap-2
                    ${value === opt.id ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}
                  >
-                   <div className="w-2 h-2 rounded-full bg-gray-300"></div>
-                   {opt.name}
+                   {Icon && <Icon size={16} className="opacity-50"/>}
+                   <div className="truncate">
+                     <span className="font-bold">{opt.stock_code ? `${opt.stock_code} - ` : ''}</span>
+                     {opt.name}
+                   </div>
                  </div>
                ))
              )}
@@ -90,13 +100,13 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
 const PurchaseInvoice = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { documentNo } = useParams(); // URL parametresini al
+  const { documentNo } = useParams();
   
-  // Düzenleme modu kontrolü
   const isEditMode = !!documentNo; 
 
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
+  const fileInputRef = useRef(null); 
 
   // Veri Listeleri
   const [companies, setCompanies] = useState([]);
@@ -106,7 +116,7 @@ const PurchaseInvoice = () => {
 
   // Form State
   const [header, setHeader] = useState({
-    id: null, // ID eklendi (Update için gerekli)
+    id: null, 
     company_id: '',
     warehouse_id: '',
     document_type: 'Fatura',
@@ -118,13 +128,12 @@ const PurchaseInvoice = () => {
   });
 
   const [items, setItems] = useState([
-    { stock_id: '', quantity: 1, unit_price: 0, discount_rate: 0, tax_rate: 20 }
+    { stock_id: '', quantity: 1, unit_price: 0, discount_rate: 0, tax_rate: 20, original_name: '' }
   ]);
 
   const activeCurrency = currencies.find(c => c.id === header.currency_id);
   const currencySymbol = activeCurrency ? activeCurrency.symbol : '₺';
 
-  // Sayfa Yüklenirken
   useEffect(() => {
     if (user) {
         initializePage();
@@ -135,7 +144,6 @@ const PurchaseInvoice = () => {
       setDataLoading(true);
       await fetchDependencies();
       
-      // Eğer düzenleme modundaysak, mevcut veriyi çek
       if (isEditMode) {
           await fetchInvoiceData(documentNo);
       }
@@ -147,8 +155,8 @@ const PurchaseInvoice = () => {
     if (!profile) return;
     const tenantId = profile.tenant_id;
 
-    // Tedarikçiler
-    supabase.from('companies').select('id, name').eq('tenant_id', tenantId)
+    // Tedarikçileri çek
+    supabase.from('companies').select('*').eq('tenant_id', tenantId)
       .then(res => setCompanies(res.data || []));
 
     // Depolar
@@ -173,7 +181,6 @@ const PurchaseInvoice = () => {
     supabase.from('currencies').select('id, name, code, symbol, exchange_rate').eq('tenant_id', tenantId)
       .then(res => {
         setCurrencies(res.data || []);
-        // Yeni kayıtsa ve henüz seçilmediyse varsayılanı seç
         if (!isEditMode && !header.currency_id) {
             const defaultCurr = res.data?.find(c => c.exchange_rate === 1);
             if (defaultCurr) {
@@ -183,9 +190,7 @@ const PurchaseInvoice = () => {
       });
   };
 
-  // Mevcut Fatura Verisini Çek
   const fetchInvoiceData = async (docNo) => {
-      // 1. Başlığı Çek
       const { data: invoice, error } = await supabase
           .from('purchase_invoices')
           .select('*')
@@ -209,7 +214,6 @@ const PurchaseInvoice = () => {
           exchange_rate: invoice.exchange_rate
       });
 
-      // 2. Kalemleri Çek
       const { data: invoiceItems } = await supabase
           .from('purchase_invoice_items')
           .select('*')
@@ -221,11 +225,125 @@ const PurchaseInvoice = () => {
               quantity: item.quantity,
               unit_price: item.unit_price,
               discount_rate: item.discount_rate,
-              tax_rate: item.tax_rate
+              tax_rate: item.tax_rate,
+              original_name: ''
           }));
-          setItems(formattedItems.length > 0 ? formattedItems : [{ stock_id: '', quantity: 1, unit_price: 0, discount_rate: 0, tax_rate: 20 }]);
+          setItems(formattedItems.length > 0 ? formattedItems : [{ stock_id: '', quantity: 1, unit_price: 0, discount_rate: 0, tax_rate: 20, original_name: '' }]);
       }
   };
+
+  // --- XML PARSE (OKUMA) FONKSİYONU ---
+  const handleXMLUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const xmlText = e.target.result;
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+
+        // Helper
+        const getText = (parent, tagName) => {
+            if (!parent) return '';
+            const el = parent.getElementsByTagNameNS("*", tagName)[0] || parent.getElementsByTagName(tagName)[0];
+            return el ? el.textContent : '';
+        };
+
+        // 1. Tedarikçi Vergi Numarasını Bul
+        const supplierParty = xmlDoc.getElementsByTagNameNS("*", "AccountingSupplierParty")[0] || xmlDoc.getElementsByTagName("cac:AccountingSupplierParty")[0];
+        
+        let taxId = '';
+        const partyTaxScheme = supplierParty?.getElementsByTagNameNS("*", "PartyTaxScheme")[0] || supplierParty?.getElementsByTagName("cac:PartyTaxScheme")[0];
+        if (partyTaxScheme) {
+            taxId = getText(partyTaxScheme, "CompanyID");
+        }
+        
+        if (!taxId) {
+            const partyIdentifications = supplierParty?.getElementsByTagNameNS("*", "PartyIdentification") || supplierParty?.getElementsByTagName("cac:PartyIdentification");
+            if (partyIdentifications && partyIdentifications.length > 0) {
+                 taxId = getText(partyIdentifications[0], "ID");
+            }
+        }
+
+        taxId = taxId.trim();
+
+        // Tedarikçi Arama
+        let matchedCompanyId = '';
+        if (taxId) {
+            const matchedCompany = companies.find(c => String(c.tax_no).trim() === taxId);
+
+            if (matchedCompany) {
+                matchedCompanyId = matchedCompany.id;
+            } else {
+                alert(`Uyarı: Vergi numarası (${taxId}) olan tedarikçi sistemde bulunamadı.\nFirmayı az önce eklediyseniz lütfen sayfayı yenileyip (F5) tekrar deneyin.`);
+            }
+        } else {
+            alert("Uyarı: Yüklenen faturada tedarikçi vergi numarası okunamadı.");
+        }
+
+        // 2. Fatura Başlık Bilgileri
+        const documentNo = getText(xmlDoc, "ID");
+        const issueDate = getText(xmlDoc, "IssueDate");
+
+        // 3. Fatura Kalemleri (Items)
+        const lines = xmlDoc.getElementsByTagNameNS("*", "InvoiceLine").length > 0 
+                      ? xmlDoc.getElementsByTagNameNS("*", "InvoiceLine") 
+                      : xmlDoc.getElementsByTagName("cac:InvoiceLine");
+        
+        const parsedItems = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const qty = parseFloat(getText(line, "InvoicedQuantity")) || 1;
+            
+            const itemElement = line.getElementsByTagNameNS("*", "Item")[0] || line.getElementsByTagName("cac:Item")[0];
+            const name = getText(itemElement, "Name");
+
+            const priceElement = line.getElementsByTagNameNS("*", "Price")[0] || line.getElementsByTagName("cac:Price")[0];
+            let price = parseFloat(getText(priceElement, "PriceAmount"));
+            
+            if (isNaN(price)) {
+                const extAmt = parseFloat(getText(line, "LineExtensionAmount"));
+                price = (extAmt && qty) ? (extAmt / qty) : 0;
+            }
+
+            const taxTotal = line.getElementsByTagNameNS("*", "TaxTotal")[0] || line.getElementsByTagName("cac:TaxTotal")[0];
+            const taxPercent = taxTotal ? (parseFloat(getText(taxTotal, "Percent")) || 20) : 20;
+
+            parsedItems.push({
+                stock_id: '', 
+                original_name: name,
+                quantity: qty,
+                unit_price: price,
+                discount_rate: 0, 
+                tax_rate: taxPercent
+            });
+        }
+
+        // State'leri Güncelle
+        setHeader(prev => ({
+            ...prev,
+            company_id: matchedCompanyId,
+            document_no: documentNo,
+            issue_date: issueDate || prev.issue_date
+        }));
+
+        if (parsedItems.length > 0) {
+            setItems(parsedItems);
+        }
+
+      } catch (err) {
+        console.error("XML Parse Hatası:", err);
+        alert("Fatura okunamadı. Dosya formatının geçerli bir UBL (e-Fatura/e-Arşiv) XML dosyası olduğundan emin olun.");
+      }
+      
+      event.target.value = null;
+    };
+    reader.readAsText(file);
+  };
+  // -----------------------------------------------------------
 
   const handleCurrencyChange = (currId) => {
     const selectedCurr = currencies.find(c => c.id === currId);
@@ -253,7 +371,7 @@ const PurchaseInvoice = () => {
   }, { subtotal: 0, tax: 0, grandTotal: 0 });
 
   const handleAddItem = () => {
-    setItems([...items, { stock_id: '', quantity: 1, unit_price: 0, discount_rate: 0, tax_rate: 20 }]);
+    setItems([...items, { stock_id: '', quantity: 1, unit_price: 0, discount_rate: 0, tax_rate: 20, original_name: '' }]);
   };
 
   const handleRemoveItem = (index) => {
@@ -273,7 +391,7 @@ const PurchaseInvoice = () => {
       return;
     }
     if (items.some(i => !i.stock_id || i.quantity <= 0)) {
-        alert("Lütfen tüm satırlarda ürün seçin ve miktar girin.");
+        alert("Lütfen tüm satırlarda eşleşen sistemi ürününüzü seçin ve miktar girin.");
         return;
     }
 
@@ -283,7 +401,6 @@ const PurchaseInvoice = () => {
 
       let invoiceId = header.id;
 
-      // Veri Hazırlama
       const invoicePayload = {
           tenant_id: profile.tenant_id,
           company_id: header.company_id,
@@ -300,7 +417,6 @@ const PurchaseInvoice = () => {
       };
 
       if (isEditMode && invoiceId) {
-          // --- GÜNCELLEME (UPDATE) ---
           const { error: updateError } = await supabase
               .from('purchase_invoices')
               .update(invoicePayload)
@@ -308,7 +424,6 @@ const PurchaseInvoice = () => {
           
           if (updateError) throw updateError;
 
-          // Kalemleri güncellemek yerine: Eskileri sil, yenileri ekle (En temiz yöntem)
           const { error: deleteError } = await supabase
               .from('purchase_invoice_items')
               .delete()
@@ -317,7 +432,6 @@ const PurchaseInvoice = () => {
           if (deleteError) throw deleteError;
 
       } else {
-          // --- YENİ KAYIT (INSERT) ---
           const { data: newInvoice, error: insertError } = await supabase
               .from('purchase_invoices')
               .insert(invoicePayload)
@@ -328,7 +442,6 @@ const PurchaseInvoice = () => {
           invoiceId = newInvoice.id;
       }
 
-      // Kalemleri Ekle (Her iki durumda da çalışır)
       const invoiceItems = items.map(item => ({
         tenant_id: profile.tenant_id,
         invoice_id: invoiceId,
@@ -344,8 +457,6 @@ const PurchaseInvoice = () => {
       if (itemsError) throw itemsError;
 
       alert(isEditMode ? "Fatura başarıyla güncellendi!" : "Fatura başarıyla oluşturuldu!");
-      
-      // Kayıttan sonra listeye dönmek mantıklıdır
       navigate('/hareketler/liste'); 
 
     } catch (error) {
@@ -363,11 +474,10 @@ const PurchaseInvoice = () => {
   return (
     <div className="w-full p-6">
       
-      {/* BAŞLIK */}
-      <div className="flex justify-between items-center mb-6">
+      {/* BAŞLIK VE BUTONLAR */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2">
-              {/* Düzenleme modundaysa geri butonu göster */}
               {isEditMode && (
                   <button onClick={() => navigate('/hareketler/liste')} className="p-2 hover:bg-gray-100 rounded-full transition">
                       <ArrowLeft size={24} className="text-gray-600"/>
@@ -382,19 +492,37 @@ const PurchaseInvoice = () => {
               {isEditMode ? `${header.document_no} nolu belgeyi düzenliyorsunuz.` : 'Tedarikçiden gelen Fatura veya İrsaliyeyi sisteme işleyin.'}
           </p>
         </div>
-        <button 
-          onClick={handleSave}
-          disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-all disabled:opacity-50"
-        >
-          <Save size={20} /> {loading ? 'İşleniyor...' : (isEditMode ? 'Güncelle' : 'Kaydet')}
-        </button>
+
+        <div className="flex items-center gap-3">
+          {!isEditMode && (
+             <div className="relative">
+                <input 
+                  type="file" 
+                  accept=".xml" 
+                  ref={fileInputRef}
+                  onChange={handleXMLUpload}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  title="e-Fatura XML Yükle"
+                />
+                <button className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all pointer-events-none">
+                  <UploadCloud size={20} /> UBL (XML) Yükle
+                </button>
+             </div>
+          )}
+
+          <button 
+            onClick={handleSave}
+            disabled={loading}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-all disabled:opacity-50"
+          >
+            <Save size={20} /> {loading ? 'İşleniyor...' : (isEditMode ? 'Güncelle' : 'Kaydet')}
+          </button>
+        </div>
       </div>
 
       {/* --- FORM KISMI --- */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6 w-full">
         
-        {/* ÜST SATIR */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
           <div className="md:col-span-1 relative z-30"> 
             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Tedarikçi</label>
@@ -412,7 +540,7 @@ const PurchaseInvoice = () => {
                 className={`w-full p-3 border border-gray-300 rounded-lg outline-none font-mono h-[50px] ${isEditMode ? 'bg-gray-100 text-gray-500' : ''}`}
                 value={header.document_no} 
                 onChange={e => setHeader({...header, document_no: e.target.value})} 
-                disabled={isEditMode} // Düzenleme modunda belge no değişmesin
+                disabled={isEditMode} 
              />
           </div>
           <div className="md:col-span-1">
@@ -421,7 +549,6 @@ const PurchaseInvoice = () => {
           </div>
         </div>
 
-        {/* ALT SATIR */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 border-t pt-4 border-gray-100">
             <div className="md:col-span-1">
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-1">
@@ -478,7 +605,7 @@ const PurchaseInvoice = () => {
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-10">#</th>
-              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-[30%]">Ürün</th>
+              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-[30%]">Ürün Eşleştirme</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-[15%]">Miktar</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase w-[15%]">
                 Birim Fiyat <span className="text-orange-600">({currencySymbol})</span>
@@ -491,7 +618,6 @@ const PurchaseInvoice = () => {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {items.map((item, index) => {
-              // Seçili stok birimini bul
               const currentStock = stockList.find(s => s.id === item.stock_id);
               const unitName = currentStock ? currentStock.unit : '';
 
@@ -499,24 +625,39 @@ const PurchaseInvoice = () => {
                 <tr key={index} className="hover:bg-blue-50/30 transition-colors">
                     <td className="px-4 py-2 text-center text-gray-400 font-mono text-xs">{index + 1}</td>
                     
-                    <td className="px-4 py-2">
-                        <select className="w-full p-2 border border-gray-300 rounded bg-white text-sm outline-none" value={item.stock_id} onChange={e => handleItemChange(index, 'stock_id', e.target.value)}>
-                            <option value="">Ürün Seçiniz...</option>
-                            {stockList.map(s => <option key={s.id} value={s.id}>{s.stock_code} - {s.name}</option>)}
-                        </select>
+                    <td className="px-4 py-2 relative">
+                        {/* Ürün Seçimi GÜNCELLENDİ (Aramalı Liste) */}
+                        <SearchableSelect 
+                            options={stockList} 
+                            value={item.stock_id} 
+                            onChange={(val) => handleItemChange(index, 'stock_id', val)} 
+                            placeholder="Sistemden Ürün Seç..."
+                            hasWarning={!!(item.original_name && !item.stock_id)}
+                        />
+                        
+                        {/* XML'den Gelen Orijinal İsim İpucu */}
+                        {item.original_name && !item.stock_id && (
+                            <div className="text-[10px] text-orange-600 mt-1 flex items-center gap-1 font-medium bg-orange-50 p-1 rounded">
+                                <AlertCircle size={12}/> XML'deki Adı: {item.original_name}
+                            </div>
+                        )}
+                        {item.original_name && item.stock_id && (
+                            <div className="text-[10px] text-green-600 mt-1 flex items-center gap-1 font-medium">
+                                ✓ {item.original_name} ile eşleşti
+                            </div>
+                        )}
                     </td>
 
-                    {/* MİKTAR VE BİRİM YAN YANA */}
                     <td className="px-4 py-2">
                         <div className="flex items-center gap-2">
-                            <input type="number" min="1" className="w-full p-2 border border-gray-300 rounded text-center font-bold text-gray-700 outline-none focus:border-blue-500" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', e.target.value)} />
+                            <input type="number" min="0.01" step="0.01" className="w-full p-2 border border-gray-300 rounded text-center font-bold text-gray-700 outline-none focus:border-blue-500" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', e.target.value)} />
                             <span className="text-xs text-gray-500 font-bold whitespace-nowrap min-w-[30px]">{unitName}</span>
                         </div>
                     </td>
 
                     <td className="px-4 py-2">
                         <div className="relative">
-                            <input type="number" min="0" step="0.01" className="w-full p-2 pl-6 border border-gray-300 rounded text-right font-mono outline-none" value={item.unit_price} onChange={e => handleItemChange(index, 'unit_price', e.target.value)} />
+                            <input type="number" min="0" step="0.0001" className="w-full p-2 pl-6 border border-gray-300 rounded text-right font-mono outline-none" value={item.unit_price} onChange={e => handleItemChange(index, 'unit_price', e.target.value)} />
                             <span className="absolute left-2 top-2 text-gray-400 text-xs font-bold">{currencySymbol}</span>
                         </div>
                     </td>
