@@ -16,6 +16,8 @@ const Stocks = () => {
   const [searchTerm, setSearchTerm] = useState('');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [lastPurchasePrice, setLastPurchasePrice] = useState(null); // YENİ: Son satınalma fiyatı state'i
+
   const [formData, setFormData] = useState({ 
     id: null, 
     stock_code: '', 
@@ -87,7 +89,30 @@ const Stocks = () => {
     setLoading(false);
   };
 
-  // GÜNCELLENEN KAYDETME FONKSİYONU
+  // YENİ: Son Satınalma Fiyatını Çeken Fonksiyon
+  const fetchLastPurchasePrice = async (stockId) => {
+    if (!stockId) {
+      setLastPurchasePrice(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('purchase_invoice_items')
+        .select('unit_price')
+        .eq('stock_id', stockId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (data && data.length > 0) {
+        setLastPurchasePrice(data[0].unit_price);
+      } else {
+        setLastPurchasePrice(null);
+      }
+    } catch (err) {
+      console.error("Son satınalma fiyatı çekilemedi:", err);
+    }
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     
@@ -96,14 +121,12 @@ const Stocks = () => {
     if (!formData.unit_id) return alert("Lütfen bir birim seçiniz!");
     if (!tenantId) return alert("Firma bilgisi bulunamadı!");
 
-    // TENANT BAZLI STOK KODU KONTROLÜ
-    // Eğer yeni kayıt ise veya mevcut kaydın stok kodu değişmişse kontrol et
     const { data: existingStock, error: checkError } = await supabase
       .from('stocks')
       .select('id')
       .eq('tenant_id', tenantId)
       .eq('stock_code', formData.stock_code)
-      .neq('id', formData.id || 0) // Düzenleme modundaysak mevcut kaydı hariç tut
+      .neq('id', formData.id || 0) 
       .maybeSingle();
 
     if (checkError) {
@@ -145,7 +168,6 @@ const Stocks = () => {
     }
 
     if (error) {
-      // Veritabanı kısıtlaması (Unique Constraint) hala hata verirse yakala
       if (error.code === '23505') {
         alert(`Bu Stok Kodu (${formData.stock_code}) sistemde zaten kayıtlı!`);
       } else {
@@ -171,6 +193,7 @@ const Stocks = () => {
         ...stock,
         manufacturer_code: stock.manufacturer_code || '' 
     });
+    fetchLastPurchasePrice(stock.id); // Fiyatı Çek
     setIsModalOpen(true);
   };
 
@@ -182,11 +205,13 @@ const Stocks = () => {
         name: stock.name + ' (Kopya)', 
         manufacturer_code: stock.manufacturer_code || '' 
     });
+    fetchLastPurchasePrice(stock.id); // Fiyatı Çek
     setIsModalOpen(true);
   };
 
   const resetForm = (defaultUnitId = '') => {
     const validUnitId = defaultUnitId || (units.length > 0 ? units[0].id : '');
+    setLastPurchasePrice(null); // Yeni kayıtta fiyatı sıfırla
     setFormData({ 
       id: null, 
       stock_code: '', 
@@ -480,6 +505,22 @@ const Stocks = () => {
                 </div>
               </div>
 
+              {/* YENİ EKLENEN: SON SATINALMA FİYATI GÜNCELLEME ALANI */}
+              {lastPurchasePrice !== null && (
+                <div className="flex items-center justify-between bg-blue-50 border border-blue-200 p-3 rounded-lg mt-4">
+                  <div className="text-sm text-blue-800">
+                    <span className="font-bold">En Son Satınalma Fiyatı:</span> {lastPurchasePrice} {formData.buying_currency_code}
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => setFormData({...formData, buying_price: lastPurchasePrice})}
+                    className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded font-bold transition-colors"
+                  >
+                    Maliyeti Güncelle
+                  </button>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">İptal</button>
                 <button type="submit" className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2">
@@ -495,14 +536,3 @@ const Stocks = () => {
 };
 
 export default Stocks;
-
-
-//SQL Commands Changes
-
-/*
-mss
--- Mevcut tekli kısıtlamayı kaldır (ismini tablonun tanımından kontrol etmelisin, genellikle stock_code_key olur)
-ALTER TABLE stocks DROP CONSTRAINT IF EXISTS stock_code;
--- Hem tenant_id hem stock_code ikilisini benzersiz yap
-ALTER TABLE stocks ADD CONSTRAINT unique_stock_code_per_tenant UNIQUE (tenant_id, stock_code);
-*/
