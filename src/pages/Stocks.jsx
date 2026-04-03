@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Search, Pencil, Trash2, X, Save, Package, Tag, FileUp, Copy, FileDown } from 'lucide-react'; // FileDown eklendi
+import { Plus, Search, Pencil, Trash2, X, Save, Package, Tag, FileUp, Copy, FileDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx'; // Excel dışa aktarımı için eklendi
+import * as XLSX from 'xlsx';
 
 const Stocks = () => {
   const { user } = useAuth();
@@ -15,7 +15,6 @@ const Stocks = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Modal ve Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ 
     id: null, 
@@ -41,7 +40,6 @@ const Stocks = () => {
     }
   }, [user]);
 
-  // 1. Birimleri (Units) Çeken Fonksiyon
   const fetchUnits = async () => {
     const { data, error } = await supabase
       .from('units')
@@ -58,10 +56,8 @@ const Stocks = () => {
     }
   };
 
-  // 2. Kullanıcının Firmasını ve Stoklarını Çeken Fonksiyon
   const getTenantAndFetchStocks = async () => {
     setLoading(true);
-
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
       .select('tenant_id')
@@ -91,7 +87,7 @@ const Stocks = () => {
     setLoading(false);
   };
 
-  // 3. KAYDETME İŞLEMİ 
+  // GÜNCELLENEN KAYDETME FONKSİYONU
   const handleSave = async (e) => {
     e.preventDefault();
     
@@ -99,6 +95,24 @@ const Stocks = () => {
     if (!formData.stock_code) return alert("Stok kodu zorunludur!");
     if (!formData.unit_id) return alert("Lütfen bir birim seçiniz!");
     if (!tenantId) return alert("Firma bilgisi bulunamadı!");
+
+    // TENANT BAZLI STOK KODU KONTROLÜ
+    // Eğer yeni kayıt ise veya mevcut kaydın stok kodu değişmişse kontrol et
+    const { data: existingStock, error: checkError } = await supabase
+      .from('stocks')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('stock_code', formData.stock_code)
+      .neq('id', formData.id || 0) // Düzenleme modundaysak mevcut kaydı hariç tut
+      .maybeSingle();
+
+    if (checkError) {
+        console.error("Kontrol hatası:", checkError);
+    }
+
+    if (existingStock) {
+      return alert(`Bu Stok Kodu (${formData.stock_code}) firmanızda zaten kayıtlı! Lütfen farklı bir kod girin.`);
+    }
 
     const stockData = {
       stock_code: formData.stock_code,
@@ -131,8 +145,9 @@ const Stocks = () => {
     }
 
     if (error) {
+      // Veritabanı kısıtlaması (Unique Constraint) hala hata verirse yakala
       if (error.code === '23505') {
-        alert(`Bu Stok Kodu (${formData.stock_code}) sistemde zaten kayıtlı! Lütfen farklı bir kod girin.`);
+        alert(`Bu Stok Kodu (${formData.stock_code}) sistemde zaten kayıtlı!`);
       } else {
         alert("Beklenmedik bir hata oluştu: " + error.message);
       }
@@ -143,7 +158,6 @@ const Stocks = () => {
     }
   };
 
-  // 4. Silme İşlemi
   const handleDelete = async (id) => {
     if (window.confirm("Bu stoğu silmek istediğinize emin misiniz?")) {
       const { error } = await supabase.from('stocks').delete().eq('id', id);
@@ -152,7 +166,6 @@ const Stocks = () => {
     }
   };
 
-  // 5. Düzenleme Modalı
   const openEditModal = (stock) => {
     setFormData({
         ...stock,
@@ -161,7 +174,6 @@ const Stocks = () => {
     setIsModalOpen(true);
   };
 
-  // 6. Kopyalama İşlemi
   const openCopyModal = (stock) => {
     setFormData({
         ...stock,
@@ -175,7 +187,6 @@ const Stocks = () => {
 
   const resetForm = (defaultUnitId = '') => {
     const validUnitId = defaultUnitId || (units.length > 0 ? units[0].id : '');
-    
     setFormData({ 
       id: null, 
       stock_code: '', 
@@ -208,42 +219,31 @@ const Stocks = () => {
     s.manufacturer_code?.toLowerCase().includes(searchTerm.toLowerCase()) 
   );
 
-  // YENİ: Excel'e Dışa Aktarma Fonksiyonu
   const handleExportExcel = () => {
     if (stocks.length === 0) {
       alert("Dışa aktarılacak stok bulunamadı.");
       return;
     }
-
-    // İçe aktarma şablonuyla aynı başlıkları kullanıyoruz
     const headers = [
       'Stok Kodu*', 'Üretici Kodu', 'Stok Adı*', 'İkinci İsim', 'Açıklama', 
       'Birim Kodu*', 'Alış Fiyatı', 'Alış Dövizi', 'Satış Fiyatı', 'Satış Dövizi', 'KDV Oranı (%)'
     ];
-
-    // Verileri formatlama
     const exportData = stocks.map(stock => [
       stock.stock_code,
       stock.manufacturer_code || '',
       stock.name,
       stock.second_name || '',
       stock.description || '',
-      getUnitCode(stock.unit_id), // İsmini değil Kodunu (ADET, KG vs) alıyoruz
+      getUnitCode(stock.unit_id),
       stock.buying_price || 0,
       stock.buying_currency_code || 'TRY',
       stock.selling_price || 0,
       stock.selling_currency_code || 'TRY',
       stock.vat_rate || 20
     ]);
-
-    // Başlıkları ve verileri birleştir
     const finalData = [headers, ...exportData];
-
-    // Workbook ve Worksheet oluştur
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(finalData);
-
-    // Sayfayı kitaba ekle ve indir
     XLSX.utils.book_append_sheet(wb, ws, "Stok_Listesi");
     XLSX.writeFile(wb, "GemStok_Tum_Stoklar.xlsx");
   };
@@ -253,12 +253,11 @@ const Stocks = () => {
       <div className="flex justify-between items-center mb-6">
         <div>
             <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                <Package className="text-blue-600" /> Stok Kartlari
+                <Package className="text-blue-600" /> Stok Kartları
             </h1>
             <p className="text-gray-500 text-sm mt-1">Ürün ve hizmet yönetimi</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-            {/* EXCEL'E AKTAR BUTONU */}
             <button 
               onClick={handleExportExcel}
               className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-sm font-medium"
@@ -266,7 +265,6 @@ const Stocks = () => {
             >
               <FileDown size={20} /> Excel'e Aktar
             </button>
-            
             <button 
               onClick={() => navigate('/stoklar/toplu-ekle')}
               className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-sm font-medium"
@@ -360,7 +358,6 @@ const Stocks = () => {
             </div>
             
             <form onSubmit={handleSave} className="p-6 space-y-4">
-              
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Stok Kodu *</label>
@@ -498,3 +495,14 @@ const Stocks = () => {
 };
 
 export default Stocks;
+
+
+//SQL Commands Changes
+
+/*
+mss
+-- Mevcut tekli kısıtlamayı kaldır (ismini tablonun tanımından kontrol etmelisin, genellikle stock_code_key olur)
+ALTER TABLE stocks DROP CONSTRAINT IF EXISTS stock_code;
+-- Hem tenant_id hem stock_code ikilisini benzersiz yap
+ALTER TABLE stocks ADD CONSTRAINT unique_stock_code_per_tenant UNIQUE (tenant_id, stock_code);
+*/
