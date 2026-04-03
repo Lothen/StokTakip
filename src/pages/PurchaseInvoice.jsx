@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Save, Plus, Trash2, FileText, Building2, User, Search, ChevronDown, Coins, RefreshCw, ArrowLeft, UploadCloud, AlertCircle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-// --- GÜNCELLENEN: ARAMALI SEÇİM KUTUSU ---
+// --- ARAMALI SEÇİM KUTUSU ---
 const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon, hasWarning }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -599,8 +599,8 @@ const PurchaseInvoice = () => {
         </div>
       </div>
 
-      {/* --- SATIRLAR --- */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-20 w-full">
+      {/* --- SATIRLAR (GÜNCELLENDİ: overflow-visible) --- */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-visible mb-20 w-full">
         <table className="w-full min-w-[800px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -625,8 +625,8 @@ const PurchaseInvoice = () => {
                 <tr key={index} className="hover:bg-blue-50/30 transition-colors">
                     <td className="px-4 py-2 text-center text-gray-400 font-mono text-xs">{index + 1}</td>
                     
-                    <td className="px-4 py-2 relative">
-                        {/* Ürün Seçimi GÜNCELLENDİ (Aramalı Liste) */}
+                    {/* GÜNCELLENDİ: 'relative' kaldırıldı */}
+                    <td className="px-4 py-2">
                         <SearchableSelect 
                             options={stockList} 
                             value={item.stock_id} 
@@ -635,7 +635,6 @@ const PurchaseInvoice = () => {
                             hasWarning={!!(item.original_name && !item.stock_id)}
                         />
                         
-                        {/* XML'den Gelen Orijinal İsim İpucu */}
                         {item.original_name && !item.stock_id && (
                             <div className="text-[10px] text-orange-600 mt-1 flex items-center gap-1 font-medium bg-orange-50 p-1 rounded">
                                 <AlertCircle size={12}/> XML'deki Adı: {item.original_name}
