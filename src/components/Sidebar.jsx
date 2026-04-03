@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2, Warehouse, FolderKanban, Network, Factory, ChevronDown, ChevronRight, PlusCircle, List, BarChart3, Filter, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, Package, ArrowRightLeft, Settings, LogOut, Building2, Warehouse, FolderKanban, Network, Factory, ChevronDown, ChevronRight, PlusCircle, List, BarChart3, Filter, ShoppingCart, Map } from 'lucide-react'; // Map eklendi
 import { useAuth } from '../context/AuthContext';
 
 const Sidebar = () => {
@@ -56,7 +56,8 @@ const Sidebar = () => {
       id: 'reports',
       children: [
         { path: '/stok-durumu/ozet', name: 'Stok Ekstresi', icon: <List size={16} /> },
-        { path: '/stok-durumu/detay', name: 'Detaylı Analiz', icon: <Filter size={16} /> }
+        { path: '/stok-durumu/detay', name: 'Detaylı Analiz', icon: <Filter size={16} /> },
+        { path: '/stok-dagilimi', name: 'Stok Dağılım Raporu', icon: <Map size={16} /> } // YENİ EKLENDİ
       ]
     },
 
@@ -66,7 +67,6 @@ const Sidebar = () => {
     { path: '/stoklar', name: 'Stok Kartları', icon: <Package size={20} /> },
     { path: '/depolar', name: 'Depolar', icon: <Warehouse size={20} /> },
     
-    // 👇 GÜNCELLEME BURADA: Path kaldırıldı 👇
     { name: 'Ayarlar', icon: <Settings size={20} /> }, 
   ];
 
@@ -75,7 +75,10 @@ const Sidebar = () => {
     if (item.id === 'transactions') {
         return location.pathname.includes('/hareketler') || location.pathname.includes('/stok-giris-fisi');
     }
-    if (item.id === 'reports') return location.pathname.includes('/stok-durumu');
+    // GÜNCELLEME: stok-dagilimi sayfasındayken de Raporlar menüsünü açık tutar
+    if (item.id === 'reports') {
+        return location.pathname.includes('/stok-durumu') || location.pathname.includes('/stok-dagilimi');
+    }
     if (item.id === 'purchasing') return location.pathname.includes('/satinalma');
     return false;
   };
@@ -91,7 +94,7 @@ const Sidebar = () => {
         {menuItems.map((item, index) => (
           <div key={index}>
             {item.isSubMenu ? (
-              // ALT MENÜLÜ ÖĞE YAPISI (Değişmedi)
+              // ALT MENÜLÜ ÖĞE YAPISI
               <div>
                 <button
                   onClick={() => toggleMenu(item.id)}
@@ -122,8 +125,7 @@ const Sidebar = () => {
                 )}
               </div>
             ) : (
-              // NORMAL ÖĞE YAPISI (GÜNCELLENDİ)
-              // Eğer 'path' varsa Link oluştur, yoksa (Ayarlar gibi) sadece Div oluştur.
+              // NORMAL ÖĞE YAPISI
               item.path ? (
                 <Link
                   to={item.path}

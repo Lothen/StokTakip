@@ -14,12 +14,15 @@ import StockTransactions from './pages/StockTransactions';
 import StockTransactionList from './pages/StockTransactionList.jsx'; 
 import StockStatusSummary from './pages/StockStatusSummary'; 
 import StockStatusDetail from './pages/StockStatusDetail'; 
+// --- YENİ EKLENEN İÇE AKTARMA ---
+import StockDistribution from './pages/StockDistribution'; 
+
 // --- SATINALMA IMPORTLARI ---
 import PurchaseInvoice from './pages/PurchaseInvoice';
 import PurchaseInvoiceList from './pages/PurchaseInvoiceList'; 
 // --- STOK GİRİŞ FİŞİ ---
 import StockEntry from './pages/StockEntry';
-// --- TOPLU STOK EKLEME (YENİ EKLENDİ) ---
+// --- TOPLU STOK EKLEME ---
 import BulkStockEntry from './pages/BulkStockEntry';
 
 import Login from './pages/Login';
@@ -114,6 +117,13 @@ function App() {
             </ProtectedRoute>
           } />
 
+          {/* 3. Stok Dağılım Raporu (YENİ EKLENDİ) */}
+          <Route path="/stok-dagilimi" element={
+            <ProtectedRoute>
+              <StockDistribution />
+            </ProtectedRoute>
+          } />
+
           <Route path="/musteriler" element={
             <ProtectedRoute>
               <Companies />
@@ -139,7 +149,6 @@ function App() {
             </ProtectedRoute>
           } />
 
-          {/* 👇 BU ROTAYI EKLEDİK: Toplu Stok Yükleme 👇 */}
           <Route path="/stoklar/toplu-ekle" element={
             <ProtectedRoute>
               <BulkStockEntry />
